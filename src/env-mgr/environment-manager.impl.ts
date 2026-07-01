@@ -248,7 +248,9 @@ export class EnvironmentManagerImpl implements EnvironmentManager {
         packagesCached = Math.max(0, packagesInstalled - 10); // 粗略估计
         this.currentStatus = { kind: 'installing_deps', progress: 90, current: 'finalizing' };
       } else if (pm === 'pip') {
-        const cmd = 'pip install -r requirements.txt';
+        const venvPath = this.ensurePythonVenv(cwd);
+        const pipPath = join(venvPath, 'bin', 'pip');
+        const cmd = `"${pipPath}" install -r requirements.txt`;
         this.currentStatus = { kind: 'installing_deps', progress: 30, current: cmd };
         console.log(`[EnvMgr] Running ${cmd} in ${cwd}`);
         execSync(cmd, { cwd, encoding: 'utf-8', stdio: 'pipe', timeout: 300_000 });
@@ -345,6 +347,34 @@ export class EnvironmentManagerImpl implements EnvironmentManager {
     } catch {
       return false;
     }
+  }
+
+  private getPipCommand(): string {
+    // macOS/Linux 上最可靠的方式：python3 -m pip
+    if (this.hasCommand('python3')) return 'python3 -m pip';
+    if (this.hasCommand('pip3')) return 'pip3';
+    if (this.hasCommand('pip')) return 'pip';
+    return 'python3 -m pip'; // 降级默认值，让错误信息更明确
+  }
+
+  private ensurePythonVenv(projectPath: string): string {
+    const venvPath = join(projectPath, '.venv');
+
+    // 如果已有激活的虚拟环境，直接使用
+    if (process.env.VIRTUAL_ENV) {
+      return process.env.VIRTUAL_ENV;
+    }
+
+    // 已存在 .venv 则复用
+    if (existsSync(join(venvPath, 'bin', 'python'))) {
+      return venvPath;
+    }
+
+    // 自动创建虚拟环境
+    console.log(`[EnvMgr] Creating Python virtual environment at ${venvPath}`);
+    execSync('python3 -m venv .venv', { cwd: projectPath, encoding: 'utf-8', stdio: 'pipe' });
+
+    return venvPath;
   }
 
   private exec(command: string): string {

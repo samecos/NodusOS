@@ -9,7 +9,7 @@ AI-Native Operating System for Developers.
 # 安装依赖
 npm install
 
-# 运行测试（当前：130 个测试，全绿）
+# 运行测试（当前：135 个测试，全绿）
 npm test
 
 # 启动 Nodus，打开当前目录的项目
@@ -42,7 +42,9 @@ auth模块最近一周改了什么
 | 模块最近改了什么 | `auth模块最近一周改了什么` |
 | 文件里有什么 | `payment.service.ts里有哪些函数` |
 
-支持中英文。支持 TypeScript、JavaScript、Python 项目。
+支持中英文，支持同义改写。例如“改动 refundOrder 会影响哪些地方”“refundOrder 的影响范围”也能识别为影响分析。
+
+支持 TypeScript、JavaScript、Python 项目。
 
 ## Project Structure
 

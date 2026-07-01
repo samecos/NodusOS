@@ -1,5 +1,5 @@
 // ============================================================
-// IntentEngine 实现 — 关键词+模式匹配 (MVP)
+// IntentEngine 实现 — 正则精确匹配 + 示例相似度回退 (MVP)
 // ============================================================
 
 import { appendFileSync, mkdirSync, existsSync } from 'node:fs';
@@ -10,35 +10,86 @@ import type {
 import type { IntentType } from '../common/types.js';
 
 const CONFIDENCE_THRESHOLD = 0.8;
+const SIMILARITY_DIRECT_THRESHOLD = 0.65;
+const SIMILARITY_AMBIGUOUS_THRESHOLD = 0.45;
 
 export class PatternIntentEngine implements IntentEngine {
+  /** 标准查询例句库：用于相似度回退匹配 */
+  private readonly exampleQueries: Array<{
+    text: string;
+    intentType: IntentType;
+    entityHint?: 'symbol' | 'file' | 'module';
+  }> = [
+    // find_definition
+    { text: 'xxx在哪里定义的', intentType: 'find_definition', entityHint: 'symbol' },
+    { text: 'xxx的定义', intentType: 'find_definition', entityHint: 'symbol' },
+    { text: 'where is xxx defined', intentType: 'find_definition', entityHint: 'symbol' },
+    { text: 'find xxx', intentType: 'find_definition', entityHint: 'symbol' },
+    { text: 'locate the definition of xxx', intentType: 'find_definition', entityHint: 'symbol' },
+    // find_references
+    { text: 'xxx被哪些地方调用了', intentType: 'find_references', entityHint: 'symbol' },
+    { text: 'xxx的引用', intentType: 'find_references', entityHint: 'symbol' },
+    { text: 'who calls xxx', intentType: 'find_references', entityHint: 'symbol' },
+    { text: 'references to xxx', intentType: 'find_references', entityHint: 'symbol' },
+    // call_graph
+    { text: 'xxx的调用链路', intentType: 'call_graph', entityHint: 'symbol' },
+    { text: 'xxx的调用链', intentType: 'call_graph', entityHint: 'symbol' },
+    { text: 'call graph of xxx', intentType: 'call_graph', entityHint: 'symbol' },
+    // impact_analysis
+    { text: '如果我改了xxx哪些文件会受影响', intentType: 'impact_analysis', entityHint: 'symbol' },
+    { text: '改动xxx会影响哪些地方', intentType: 'impact_analysis', entityHint: 'symbol' },
+    { text: 'xxx的影响范围', intentType: 'impact_analysis', entityHint: 'symbol' },
+    { text: 'what would break if i change xxx', intentType: 'impact_analysis', entityHint: 'symbol' },
+    { text: 'impact analysis of xxx', intentType: 'impact_analysis', entityHint: 'symbol' },
+    { text: 'which files are affected by changing xxx', intentType: 'impact_analysis', entityHint: 'symbol' },
+    // change_history
+    { text: 'xxx模块最近一周改了什么', intentType: 'change_history', entityHint: 'module' },
+    { text: 'xxx最近有什么变更', intentType: 'change_history', entityHint: 'module' },
+    { text: 'change history of xxx', intentType: 'change_history', entityHint: 'module' },
+    // symbol_overview
+    { text: 'xxx里有哪些函数', intentType: 'symbol_overview', entityHint: 'file' },
+    { text: 'xxx里有哪些符号', intentType: 'symbol_overview', entityHint: 'file' },
+    { text: 'list symbols in xxx', intentType: 'symbol_overview', entityHint: 'file' },
+  ];
+
   parse(input: IntentInput, context: Context): QueryIntent | IntentError {
     const text = input.text.trim();
     if (!text) return { kind: 'empty_input' };
 
     const lower = text.toLowerCase();
 
-    // 意图模式匹配
+    // 1. 意图模式匹配（精确、快速）
     const matched = this.matchIntent(lower, text, context);
-    if (!matched) {
-      // 尝试有上下文时补全
-      if (context.cursor_symbol || context.selected_code) {
-        const symName = context.cursor_symbol ?? this.extractSymbolName(context.selected_code ?? '');
-        if (symName) {
-          return this.makeIntent(text, 'find_definition', { symbolName: symName }, 0.75);
-        }
+    if (matched) {
+      if (matched.confidence < CONFIDENCE_THRESHOLD) {
+        return {
+          kind: 'ambiguous',
+          candidates: matched.candidates ?? [matched],
+        };
       }
-      return { kind: 'unparseable', rawText: text };
+      return matched;
     }
 
-    if (matched.confidence < CONFIDENCE_THRESHOLD) {
-      return {
-        kind: 'ambiguous',
-        candidates: matched.candidates ?? [matched],
-      };
+    // 2. 相似度回退匹配（容忍同义改写、错别字、语序变化）
+    const similar = this.matchBySimilarity(text, context);
+    if (similar) {
+      if (similar.confidence >= SIMILARITY_DIRECT_THRESHOLD) {
+        return similar;
+      }
+      if (similar.confidence >= SIMILARITY_AMBIGUOUS_THRESHOLD) {
+        return { kind: 'ambiguous', candidates: [similar] };
+      }
     }
 
-    return matched;
+    // 3. 上下文自动补全
+    if (context.cursor_symbol || context.selected_code) {
+      const symName = context.cursor_symbol ?? this.extractSymbolName(context.selected_code ?? '');
+      if (symName) {
+        return this.makeIntent(text, 'find_definition', { symbolName: symName }, 0.75);
+      }
+    }
+
+    return { kind: 'unparseable', rawText: text };
   }
 
   resolveAmbiguity(candidates: QueryIntent[], chosenIndex: number): QueryIntent {
@@ -113,8 +164,8 @@ export class PatternIntentEngine implements IntentEngine {
       // 影响分析
       {
         patterns: [
-          /(?:如果)?(?:我)?(?:改(?:了|变)|修改)(.+?)(?:会)?(?:影响哪些|哪些文件会受|what\s+would\s+break)/i,
-          /(.+?)(?:的影响范围|impact analysis|affected files)/i,
+          /(?:如果)?(?:我)?(?:改(?:了|变)|修改)(.+?)(?:会)?(?:影响哪些|哪些.{0,4}会.{0,2}(?:受|收).{0,2}影响|影响范围|what\s+would\s+break)/i,
+          /(.+?)(?:的影响范围|impact analysis|affected files|改了?会.?影响)/i,
         ],
         intentType: 'impact_analysis',
         extractEntities: (_, text, ctx) => ({
@@ -171,12 +222,103 @@ export class PatternIntentEngine implements IntentEngine {
     return { rawText, intentType, confidence, entities };
   }
 
+  // ---- 相似度回退匹配 ----
+
+  private matchBySimilarity(rawText: string, ctx: Context): QueryIntent | null {
+    const inputTokens = this.tokenize(rawText);
+    let best: {
+      intentType: IntentType;
+      score: number;
+      entityHint?: 'symbol' | 'file' | 'module';
+    } | null = null;
+
+    for (const ex of this.exampleQueries) {
+      const exTokens = this.tokenize(ex.text);
+      const score = this.cosineSimilarity(inputTokens, exTokens);
+      if (!best || score > best.score) {
+        best = { intentType: ex.intentType, score, entityHint: ex.entityHint };
+      }
+    }
+
+    if (!best || best.score < SIMILARITY_AMBIGUOUS_THRESHOLD) return null;
+
+    const entities = this.extractEntitiesForHint(rawText, ctx, best.entityHint);
+    return this.makeIntent(rawText, best.intentType, entities, best.score);
+  }
+
+  private tokenize(text: string): string[] {
+    // 把标识符统一替换成占位符，让相似度聚焦在意图关键词而非具体符号名
+    const normalized = text.toLowerCase().replace(/[a-z0-9_]\w+/g, '__sym__');
+    const tokens: string[] = [];
+    // 字符二元组：对中文/缩写/拼写错误鲁棒
+    for (let i = 0; i < normalized.length - 1; i++) {
+      tokens.push(normalized.slice(i, i + 2));
+    }
+    // 英文单词与占位符
+    const words = normalized.match(/[a-z0-9_]+/g) ?? [];
+    return [...tokens, ...words];
+  }
+
+  private cosineSimilarity(a: string[], b: string[]): number {
+    const freqA = new Map<string, number>();
+    const freqB = new Map<string, number>();
+    for (const t of a) freqA.set(t, (freqA.get(t) ?? 0) + 1);
+    for (const t of b) freqB.set(t, (freqB.get(t) ?? 0) + 1);
+
+    let dot = 0;
+    let normA = 0;
+    let normB = 0;
+
+    for (const [t, c] of freqA) {
+      normA += c * c;
+      if (freqB.has(t)) dot += c * (freqB.get(t) ?? 0);
+    }
+    for (const c of freqB.values()) normB += c * c;
+
+    if (normA === 0 || normB === 0) return 0;
+    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+  }
+
+  private extractEntitiesForHint(
+    text: string,
+    ctx: Context,
+    hint?: 'symbol' | 'file' | 'module',
+  ): IntentEntity {
+    const entities: IntentEntity = {};
+    if (hint === 'symbol') {
+      entities.symbolName = this.extractSymbolName(text) ?? ctx.cursor_symbol ?? undefined;
+    } else if (hint === 'file') {
+      entities.filePath = this.extractFilePath(text) ?? ctx.active_file ?? undefined;
+    } else if (hint === 'module') {
+      entities.moduleName = this.extractModuleName(text) ?? undefined;
+      entities.timeRange = this.extractTimeRange(text);
+    }
+    return entities;
+  }
+
   // ---- 实体提取 ----
 
   private extractSymbolName(text: string): string | null {
-    // 匹配驼峰或下划线命名的标识符
-    const match = text.match(/\b([a-zA-Z_]\w{1,40})\b/);
-    return match?.[1] ?? null;
+    // 常见停用词，避免把英文虚词误判为符号名
+    const commonWords = new Set([
+      'the', 'of', 'is', 'where', 'find', 'show', 'look', 'up', 'who', 'calls',
+      'references', 'to', 'call', 'graph', 'chain', 'impact', 'analysis', 'affected',
+      'files', 'what', 'would', 'break', 'if', 'i', 'change', 'locate', 'definition',
+      'module', 'symbols', 'functions', 'exports', 'in', 'for', 'a', 'an', 'and',
+      'or', 'how', 'does', 'are', 'there', 'any', 'recent', 'changes', 'history',
+    ]);
+
+    const matches = text.match(/\b[a-zA-Z_]\w{1,40}\b/g) ?? [];
+    const candidates = matches.filter(w => !commonWords.has(w.toLowerCase()));
+    if (candidates.length === 0) return matches[0] ?? null;
+
+    // 优先选较长的、带下划线或驼峰分隔的标识符
+    const scored = candidates.map(w => ({
+      word: w,
+      score: w.length + (w.includes('_') ? 5 : 0) + (/[a-z][A-Z]/.test(w) ? 3 : 0),
+    }));
+    scored.sort((a, b) => b.score - a.score);
+    return scored[0]!.word;
   }
 
   private extractFilePath(text: string): string | null {

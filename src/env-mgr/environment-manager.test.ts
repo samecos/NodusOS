@@ -101,6 +101,22 @@ requires-python = ">=3.12"
     expect(em.detectPackageManager(testDir)).toBe('poetry');
   });
 
+  // TC-UT-EM-011: 应选择合适的 pip 命令
+  it('TC-UT-EM-011: should select available pip command', () => {
+    const pipCmd = (em as unknown as { getPipCommand: () => string }).getPipCommand();
+    expect(pipCmd).toMatch(/python3 -m pip|pip3|pip/);
+  });
+
+  // TC-UT-EM-012: 应复用已存在的 .venv
+  it('TC-UT-EM-012: should reuse existing Python venv', () => {
+    const venvDir = join(testDir, '.venv');
+    mkdirSync(join(venvDir, 'bin'), { recursive: true });
+    writeFileSync(join(venvDir, 'bin', 'python'), '');
+
+    const venvPath = (em as unknown as { ensurePythonVenv: (path: string) => string }).ensurePythonVenv(testDir);
+    expect(venvPath).toBe(venvDir);
+  });
+
   // TC-UT-EM-010: installRuntime 在已安装时直接返回
   it('TC-UT-EM-010: should skip install when runtime is already installed', async () => {
     // 当前环境通常已安装 Node，checkRuntime 会返回 installed

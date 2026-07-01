@@ -55,6 +55,15 @@ describe('IntentEngine', () => {
     expect('intentType' in result && result.intentType).toBe('impact_analysis');
   });
 
+  // TC-UT-IE-016: 影响分析（用户实际问法）
+  it('should recognize impact_analysis with "收到影响" phrasing', () => {
+    const result = parse('如果我修改了refine_edge_points哪些文件会收到影响');
+    expect('intentType' in result && result.intentType).toBe('impact_analysis');
+    if ('entities' in result) {
+      expect(result.entities?.symbolName).toBe('refine_edge_points');
+    }
+  });
+
   // TC-UT-IE-006: 变更历史
   it('should recognize change_history intent', () => {
     const result = parse('auth模块最近一周改了什么');
@@ -81,6 +90,24 @@ describe('IntentEngine', () => {
   it('should return empty_input for blank text', () => {
     const result = engine.parse({ source: 'text', text: '', locale: 'zh-CN' }, makeCtx());
     expect('kind' in result && result.kind).toBe('empty_input');
+  });
+
+  // TC-UT-IE-017: 相似度回退匹配
+  it('should recognize paraphrased impact_analysis via similarity', () => {
+    const result = parse('改动 refine_edge_points 会影响哪些地方');
+    expect('intentType' in result && result.intentType).toBe('impact_analysis');
+    if ('entities' in result) {
+      expect(result.entities?.symbolName).toBe('refine_edge_points');
+    }
+  });
+
+  // TC-UT-IE-018: 相似度匹配英文同义表达
+  it('should recognize paraphrased find_definition via similarity', () => {
+    const result = parse('locate the definition of refundOrder');
+    expect('intentType' in result && result.intentType).toBe('find_definition');
+    if ('entities' in result) {
+      expect(result.entities?.symbolName).toBe('refundOrder');
+    }
   });
 
   // TC-UT-IE-014: resolve_ambiguity
