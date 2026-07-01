@@ -54,6 +54,123 @@ auth模块最近一周改了什么
 
 支持 TypeScript、JavaScript、Python 项目。
 
+## 使用方法
+
+### 启动与项目加载
+
+```bash
+# 进入 NodusOS 目录并安装依赖
+cd /path/to/NodusOS
+npm install
+
+# 方式一：打开当前目录作为目标项目
+npm run dev
+
+# 方式二：打开指定项目
+npm run dev /path/to/your/project
+```
+
+首次启动时，Nodus 会：
+
+1. 在 `~/.nodus/` 创建配置、日志与 SQLite 数据库。
+2. 自动检测目标项目类型（TypeScript / JavaScript / Python）。
+3. 递归扫描项目源码，建立语义索引（符号、引用、调用图）。
+
+### 交互式查询
+
+启动后进入 REPL，直接输入自然语言：
+
+```
+Nodus is ready. Type a query or /quit to exit.
+
+> refundOrder在哪里定义的
+> PaymentService被哪些地方调用了
+> 如果我改了User模型，哪些文件会受影响
+> auth模块最近一周改了什么
+> 项目代码统计
+```
+
+支持中英文混合输入。若系统对意图识别不确定，会列出最匹配的几种解释供你选择。
+
+### 常用命令
+
+在 REPL 中输入以下命令：
+
+| 命令 | 作用 |
+|------|------|
+| `/quit` 或 `/exit` | 退出 Nodus |
+| `/help` | 显示可用命令与示例 |
+| `/history` | 查看本次会话的查询历史 |
+| `/feedback <文本>` | 提交使用反馈，保存到 `~/.nodus/feedback.jsonl` |
+
+### 配置文件
+
+Nodus 在 `~/.nodus/config.json` 中维护配置，启动时自动加载。示例：
+
+```json
+{
+  "projectPath": "/path/to/your/project",
+  "dbPath": "~/.nodus/nodus.db",
+  "language": "zh",
+  "voice": {
+    "enabled": false,
+    "wakeWord": "结绳"
+  },
+  "indexing": {
+    "excludePatterns": ["node_modules", ".git", "dist", "build"],
+    "maxFileSizeBytes": 1048576
+  }
+}
+```
+
+修改配置后，下次启动生效（部分配置支持热重载）。
+
+### 日志与数据目录
+
+| 路径 | 用途 |
+|------|------|
+| `~/.nodus/nodus.db` | SQLite 知识库 |
+| `~/.nodus/config.json` | 用户配置 |
+| `~/.nodus/logs/` | 运行日志 |
+| `~/.nodus/feedback.jsonl` | 用户反馈记录 |
+
+### 构建与打包
+
+```bash
+# 编译 TypeScript 到 dist/
+npm run build
+
+# 一键打包：编译 + 复制产物 + 安装生产依赖到 bundle/
+npm run package
+
+# 一键运行打包结果
+npm run run:pkg
+
+# 或直接运行 bundle 中的入口
+node bundle/dist/main.js
+./bundle/nodus
+```
+
+打包后生成 `bundle/` 目录，结构如下：
+
+```
+bundle/
+├── dist/              # 编译后的 JS
+├── node_modules/      # 生产依赖（含 better-sqlite3、tree-sitter 等原生模块）
+├── nodus              # Unix 可执行入口
+├── nodus.cmd          # Windows 可执行入口
+└── package.json
+```
+
+> 注意：由于 `better-sqlite3` 与 `tree-sitter` 包含原生二进制，打包产物与当前操作系统/架构绑定。若需分发到其他平台，请在目标平台上重新执行 `npm run package`。
+
+### 注意事项
+
+- Nodus 目前定位为 VSCode 等编辑器的补充，不是编辑器替代品。
+- 环境自动安装功能会检测现有运行时（Node / Python），但不会主动下载安装；若未检测到，会给出安装提示。
+- 代码解析基于 tree-sitter，复杂类型引用、跨文件动态调用等场景仍在持续完善。
+- 若遇到 `better-sqlite3` 或 `tree-sitter` 的 `dlopen` 报错，请参考下方“原生依赖兼容性”章节重新编译。
+
 ## Project Structure
 
 ```

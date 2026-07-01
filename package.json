@@ -3,12 +3,19 @@
   "version": "0.1.0",
   "description": "Nodus (结绳) — AI-Native Operating System for Developers",
   "type": "module",
+  "main": "dist/main.js",
+  "bin": {
+    "nodus": "dist/main.js"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "dev": "tsx src/main.ts"
+    "dev": "tsx src/main.ts",
+    "build": "tsc",
+    "package": "npm run build && node scripts/package.js",
+    "run:pkg": "node bundle/dist/main.js"
   },
   "keywords": [
     "ai-native-os",
