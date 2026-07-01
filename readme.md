@@ -9,7 +9,10 @@ AI-Native Operating System for Developers.
 # 安装依赖
 npm install
 
-# 运行测试（当前：160 个测试，全绿）
+# 检测原生依赖是否能正常加载
+npm run check:native
+
+# 运行测试
 npm test
 
 # 启动 Nodus，打开当前目录的项目
@@ -236,15 +239,31 @@ npm run typecheck     # TypeScript 检查
 
 ### 原生依赖兼容性
 
-项目依赖 `better-sqlite3` 与 `tree-sitter` 两个带原生二进制（`.node`）的 npm 包。在某些 macOS 环境上，预编译二进制可能因签名或架构问题无法加载，表现为 `dlopen` 报错。
+Nodus 依赖 `better-sqlite3` 与 `tree-sitter` 系列包，它们包含原生二进制（`.node`）。在某些 macOS 环境上，预编译二进制可能因签名或架构问题无法加载，表现为 `dlopen` 报错。
 
-若遇到此类问题，尝试从源码重新编译：
+**快速诊断：**
 
 ```bash
-# 修复 node-gyp-build 无执行权限（如 npm rebuild 报 126）
-chmod +x node_modules/.bin/node-gyp-build
+npm run check:native
+```
 
-# 重新编译
+如果输出中有 ❌，请执行：
+
+```bash
+npm run rebuild:native
+```
+
+该命令会依次重新编译：
+
+- `better-sqlite3`
+- `tree-sitter`
+- `tree-sitter-typescript`
+- `tree-sitter-javascript`
+- `tree-sitter-python`
+
+Windows 用户请手动逐条运行：
+
+```powershell
 npm rebuild better-sqlite3
 npm rebuild tree-sitter
 npm rebuild tree-sitter-typescript
@@ -252,18 +271,72 @@ npm rebuild tree-sitter-javascript
 npm rebuild tree-sitter-python
 ```
 
+重建后再运行：
+
+```bash
+npm run check:native
+npm test
+```
+
+如果仍失败，请检查：
+
+1. Node.js 版本是否符合 `package.json` 的 `engines` 要求。
+2. 是否已安装 Xcode Command Line Tools（macOS）或 Python + Visual Studio Build Tools（Windows）。
+3. `node-gyp` 是否有网络问题导致无法下载头文件；可配置 `npm config set python python3` 与代理。
+
 ## 未完成事项 / TODO
 
-> 完成一项后在此勾选，并同步更新 `npm test` 结果。
+> 来源：`ArchitecturalDesignPhase/05-Future-Roadmap.md`  
+> 规则：按优先级逐项实现，完成一项后在此勾选，并同步更新 `npm test` 结果与相关文档。
 
-### P0 — 阻塞性问题
+### P0 — 尽快做
+
+#### v1.1 基础夯实
+- [ ] R1.1 原生二进制兼容性治理（`better-sqlite3` / `tree-sitter` 可正常加载）
+- [ ] R1.2 CodeIntelligence 单元测试与集成测试补全
+
+#### v1.2 体验增强
+- [ ] R2.1 本地轻量意图模型（BERT-tiny / ONNX，延迟 < 200ms）
+- [ ] R2.2 上下文自动补全（光标/选中代码成为隐式查询参数）
+
+#### v2.0 能力扩展
+- [ ] R3.1 AI 代码生成与重构（基于索引生成 diff 卡片）
+
+### P1 — 下个版本做
+
+#### v1.1 基础夯实
+- [ ] R1.3 跨文件引用解析增强（`tsconfig.json` paths / index re-export / namespace import）
+- [ ] R1.4 类型关系建模（`inheritance` / `implements` / `type_use`）
+- [ ] R1.5 TerminalRenderer 调用图 ASCII 渲染
+- [ ] R1.6 配置热加载（`~/.nodus/config.json` 变更即时生效）
+- [ ] R1.7 会话恢复（重启后恢复项目、文件、光标位置）
+- [ ] R1.8 错误处理与降级卡片统一
+
+#### v1.2 体验增强
+- [ ] R2.3 查询历史与推荐
+- [ ] R2.4 真正的语音唤醒与 STT（Porcupine / Whisper.cpp / 系统 API）
+- [ ] R2.5 呼吸灯与状态指示（Idle / Listening / Working / Warning）
+- [ ] R2.6 代码片段卡片（引用列表、变更历史附带代码片段与高亮）
+- [ ] R2.7 模糊意图学习闭环（`feedback.jsonl` 驱动模型改进）
+- [ ] R2.8 多项目快速切换（自然语言打开/切换项目）
+
+#### v2.0 能力扩展
+- [ ] R3.2 代码评审助手（基于 Git diff + 符号索引生成摘要与风险点）
+- [ ] R3.3 跨域调试（日志+代码关联）
+- [ ] R3.4 训练标注飞轮（AI 生成结果写入 `annotations` 表）
+- [ ] R3.5 外部服务环境管理（DB / Redis / Docker 检测与启动）
+- [ ] R3.8 新语言支持插件化（Rust / Go / Java 等通过插件接入）
+
+### P2 — 远期
+- [ ] R3.6 团队协作（项目级语义索引与注释共享）
+- [ ] R3.7 多设备同步（查询历史、偏好、项目列表）
+
+### 历史已完成（MVP 阶段）
 - [x] 补齐数据库 Schema：`file_index_state` / `project_runtimes` / `project_dependencies` 表
 - [x] 补齐数据库索引（`idx_symbols_language` / `parent` / `file_kind`、`idx_refs_kind`、`idx_file_state_checksum`、`idx_query_hist_intent`）
 - [x] 在 `index_file` / `indexProject` 中使用 `file_index_state` 做 checksum 增量索引
-
-### P1 — MVP 功能缺口
 - [x] 实现统一模块错误类型（`CodeIntelError` / `EnvError` / `GitError` / `VoiceError`）
-- [x] 实现 `~/.nodus/config.json` 配置系统与热加载
+- [x] 实现 `~/.nodus/config.json` 配置系统
 - [x] 完善 EventBus 标准事件类型与 `NodusShell` 事件路由
 - [x] 扩展 `UIRenderer` 接口（卡片系统、呼吸灯、输入条、代码导航）
 - [x] 实现 `project_runtimes` / `project_dependencies` 的持久化与读取
@@ -271,14 +344,12 @@ npm rebuild tree-sitter-python
 - [x] 实现 `CodeAnalytics` 分析接口：`listSymbols`、`mostCalledFunctions`、`mostImpactfulSymbols`、`unusedExports`
 - [x] 扩展 `TerminalRenderer` 支持列表/排行榜/表格/统计报告/变更热点展示
 - [x] 更新意图引擎例句库覆盖新查询类型
-
-### P2 — 工程化与文档
 - [x] 实现数据库迁移系统（`schema_version` + migrations）
 - [x] 实现查询历史 90 天自动清理策略
 - [x] 实现统一日志系统（`~/.nodus/logs/`）
 - [x] 实现 `mostCoupledModules` / `longestCallChains` / `findEntryPoints` / `listTodoComments` / `complexityScores` / `mostChangedFiles`
 - [x] 更新 `ArchitecturalDesignPhase/04-API-Reference.md` 新增 CodeAnalytics 章节
-- [x] 更新 README 功能说明与测试数量
+- [x] 新增 `ArchitecturalDesignPhase/05-Future-Roadmap.md` 并更新 HLD/API 引用
 
 ## Documentation
 
