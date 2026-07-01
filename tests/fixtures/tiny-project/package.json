@@ -1,0 +1,6 @@
+{
+  "name": "tiny-project",
+  "dependencies": {
+    "typescript": "^5.0"
+  }
+}
