@@ -36,9 +36,22 @@ struct SourceLocation {
 }
 ```
 
+### 1.3 实现状态图例
+
+本文档部分接口已落地实现，部分为后续版本预留。模块标题与接口旁使用以下标记：
+
+| 标记 | 含义 |
+|------|------|
+| ✅ v1.0 | MVP 阶段已实现 |
+| 🚧 v1.1 | 基础夯实阶段计划实现/完善 |
+| 🔮 v1.2 | 体验增强阶段计划实现 |
+| 🚀 v2.0 | 能力扩展阶段计划实现 |
+
+完整路线见 [05-Future-Roadmap.md](05-Future-Roadmap.md)。
+
 ---
 
-## 2. Nodus Shell
+## 2. Nodus Shell ✅ v1.0
 
 应用根模块。管理生命周期、模块注册和事件总线。
 
@@ -126,7 +139,7 @@ fn on<E: EventType>(&self, handler: Box<dyn Fn(E)>) -> Subscription;
 
 ---
 
-## 3. Intent Engine
+## 3. Intent Engine ✅ v1.0 (规则实现), 🔮 v1.2 (本地模型)
 
 ### 3.1 parse
 
@@ -246,7 +259,7 @@ fn record_feedback(
 
 ---
 
-## 4. Context Manager
+## 4. Context Manager ✅ v1.0
 
 ### 4.1 snapshot
 
@@ -291,7 +304,7 @@ enum ContextDelta {
 
 ---
 
-## 5. Code Intelligence
+## 5. Code Intelligence ✅ v1.0 (基础实现), 🚧 v1.1 (跨文件引用 / 类型关系)
 
 ### 5.1 index_project
 
@@ -591,7 +604,7 @@ struct StatsReport {
 
 ---
 
-## 6. Environment Manager
+## 6. Environment Manager ✅ v1.0 (检测/安装), 🚀 v2.0 (外部服务)
 
 ### 6.1 detect_project
 
@@ -666,7 +679,7 @@ async fn install_dependencies(
 
 ---
 
-## 7. Git Intelligence
+## 7. Git Intelligence ✅ v1.0
 
 ### 7.1 log
 
@@ -739,7 +752,7 @@ async fn blame(
 
 ---
 
-## 8. Voice Pipeline
+## 8. Voice Pipeline 🔮 v1.2 (当前 TTS 可用，唤醒/STT 待完善)
 
 ### 8.1 start
 
@@ -786,7 +799,7 @@ fn set_silent_mode(&self, silent: bool);
 
 ---
 
-## 9. UI Renderer
+## 9. UI Renderer ✅ v1.0 (终端), 🔮 v1.2 (图形卡片)
 
 ### 9.1 show_card
 
@@ -849,7 +862,7 @@ fn show_input_bar(&self, prefilled_text: Option<&str>);
 
 ---
 
-## 10. 事件总线 API
+## 10. 事件总线 API ✅ v1.0
 
 ### 10.1 完整事件清单
 
@@ -923,7 +936,7 @@ enum Event {
 
 ---
 
-## 11. Knowledge Store
+## 11. Knowledge Store ✅ v1.0 (接口), 🚧 v1.1 (原生依赖兼容性)
 
 ### 11.1 符号操作
 
@@ -981,7 +994,7 @@ async fn history_recent(&self, limit: u32) -> Result<Vec<QueryHistoryEntry>, Sto
 
 ---
 
-## 12. File Watcher
+## 12. File Watcher ✅ v1.0
 
 ```rust
 trait FileWatcher {

@@ -9,8 +9,8 @@ const NATIVE_PACKAGES = [
 ];
 
 describe('Native dependency loading', () => {
-  for (const name of NATIVE_PACKAGES) {
-    it(`TC-UT-ND-001: should load ${name}`, async () => {
+  NATIVE_PACKAGES.forEach((name, index) => {
+    it(`TC-UT-ND-${String(index + 1).padStart(3, '0')}: should load ${name}`, async () => {
       let mod: unknown;
       try {
         mod = await import(name);
@@ -23,5 +23,5 @@ describe('Native dependency loading', () => {
       }
       expect(mod).toBeDefined();
     });
-  }
+  });
 });

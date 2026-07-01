@@ -292,7 +292,7 @@ npm test
 ### P0 — 尽快做
 
 #### v1.1 基础夯实
-- [ ] R1.1 原生二进制兼容性治理（`better-sqlite3` / `tree-sitter` 可正常加载）
+- [x] R1.1 原生二进制兼容性治理（`better-sqlite3` / `tree-sitter` 可正常加载）
 - [ ] R1.2 CodeIntelligence 单元测试与集成测试补全
 
 #### v1.2 体验增强
@@ -336,7 +336,7 @@ npm test
 - [x] 补齐数据库索引（`idx_symbols_language` / `parent` / `file_kind`、`idx_refs_kind`、`idx_file_state_checksum`、`idx_query_hist_intent`）
 - [x] 在 `index_file` / `indexProject` 中使用 `file_index_state` 做 checksum 增量索引
 - [x] 实现统一模块错误类型（`CodeIntelError` / `EnvError` / `GitError` / `VoiceError`）
-- [x] 实现 `~/.nodus/config.json` 配置系统
+- [x] 实现 `~/.nodus/config.json` 配置系统与热加载
 - [x] 完善 EventBus 标准事件类型与 `NodusShell` 事件路由
 - [x] 扩展 `UIRenderer` 接口（卡片系统、呼吸灯、输入条、代码导航）
 - [x] 实现 `project_runtimes` / `project_dependencies` 的持久化与读取
