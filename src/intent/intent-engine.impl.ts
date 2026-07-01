@@ -2,6 +2,8 @@
 // IntentEngine 实现 — 关键词+模式匹配 (MVP)
 // ============================================================
 
+import { appendFileSync, mkdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type {
   IntentEngine, IntentInput, QueryIntent, IntentEntity, IntentError, Context,
 } from './intent-engine.js';
@@ -57,8 +59,6 @@ export class PatternIntentEngine implements IntentEngine {
 
     // 写入 ~/.nodus/feedback.jsonl（追加一行 JSON）
     try {
-      const { appendFileSync, mkdirSync, existsSync } = require('node:fs') as typeof import('node:fs');
-      const { join } = require('node:path') as typeof import('node:path');
       const home = process.env.HOME ?? process.env.USERPROFILE ?? '.';
       const dir = join(home, '.nodus');
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });

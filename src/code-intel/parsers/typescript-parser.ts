@@ -152,6 +152,27 @@ export class TypeScriptParser implements LanguageParser {
       }
     }
 
+    if (node.type === 'new_expression') {
+      const fnNode = node.namedChildren[0];
+      if (fnNode) {
+        const calleeName = this.resolveCallTarget(fnNode);
+        if (calleeName) {
+          const target = symbolMap.get(calleeName);
+          refs.push({
+            id: hashSymbolId(filePath, `new_${calleeName}`, 'instantiation', node.startPosition.row + 1),
+            source_symbol_id: '',
+            target_symbol_id: target?.id ?? `unknown:${calleeName}`,
+            location: {
+              file_path: filePath,
+              line_start: node.startPosition.row + 1, line_end: node.endPosition.row + 1,
+              col_start: node.startPosition.column + 1, col_end: node.endPosition.column + 1,
+            },
+            kind: 'instantiation',
+          });
+        }
+      }
+    }
+
     if (node.type === 'import_statement') {
       for (const child of node.namedChildren) {
         if (child.type === 'import_specifier') {
@@ -167,6 +188,68 @@ export class TypeScriptParser implements LanguageParser {
               col_start: child.startPosition.column + 1, col_end: child.endPosition.column + 1,
             },
             kind: 'import',
+          });
+        }
+      }
+    }
+
+    // 类型使用
+    if (node.type === 'type_identifier') {
+      const name = node.text;
+      const target = symbolMap.get(name);
+      refs.push({
+        id: hashSymbolId(filePath, `type_${name}`, 'type_use', node.startPosition.row + 1),
+        source_symbol_id: '',
+        target_symbol_id: target?.id ?? `external:${name}`,
+        location: {
+          file_path: filePath,
+          line_start: node.startPosition.row + 1, line_end: node.endPosition.row + 1,
+          col_start: node.startPosition.column + 1, col_end: node.endPosition.column + 1,
+        },
+        kind: 'type_use',
+      });
+    }
+
+    // 继承关系
+    if (node.type === 'extends_clause' || node.type === 'implements_clause') {
+      const typeNode = node.namedChildren.find(
+        c => c.type === 'type_identifier' || c.type === 'identifier',
+      );
+      if (typeNode) {
+        const name = typeNode.text;
+        const target = symbolMap.get(name);
+        refs.push({
+          id: hashSymbolId(filePath, `inherit_${name}`, 'inheritance', node.startPosition.row + 1),
+          source_symbol_id: '',
+          target_symbol_id: target?.id ?? `external:${name}`,
+          location: {
+            file_path: filePath,
+            line_start: typeNode.startPosition.row + 1, line_end: typeNode.endPosition.row + 1,
+            col_start: typeNode.startPosition.column + 1, col_end: typeNode.endPosition.column + 1,
+          },
+          kind: 'inheritance',
+        });
+      }
+    }
+
+    // 装饰器
+    if (node.type === 'decorator') {
+      const callExpr = node.namedChildren.find(c => c.type === 'call_expression');
+      const targetNode = callExpr?.childForFieldName?.('function') ?? node.namedChildren[0];
+      if (targetNode) {
+        const name = this.resolveCallTarget(targetNode);
+        if (name) {
+          const target = symbolMap.get(name);
+          refs.push({
+            id: hashSymbolId(filePath, `decorator_${name}`, 'decorator_use', node.startPosition.row + 1),
+            source_symbol_id: '',
+            target_symbol_id: target?.id ?? `external:${name}`,
+            location: {
+              file_path: filePath,
+              line_start: node.startPosition.row + 1, line_end: node.endPosition.row + 1,
+              col_start: node.startPosition.column + 1, col_end: node.endPosition.column + 1,
+            },
+            kind: 'decorator_use',
           });
         }
       }
@@ -240,12 +323,18 @@ export class TypeScriptParser implements LanguageParser {
   }
 
   private isExported(source: string, node: TSNode): boolean {
-    const start = source.lastIndexOf('\n', source.lastIndexOf('\n', node.startPosition.row === 0 ? 0 : source.indexOf(node.text)) - 1) + 1;
-    const prefix = source.slice(
-      Math.max(0, source.lastIndexOf('\n', source.indexOf(node.text) - 1)),
-      source.indexOf(node.text)
-    );
-    return prefix.includes('export');
+    // 根据 tree-sitter 行/列计算节点在源码中的起始字符偏移
+    const lines = source.split('\n');
+    let offset = 0;
+    for (let i = 0; i < node.startPosition.row; i++) {
+      offset += lines[i].length + 1; // +1 为换行符
+    }
+    offset += node.startPosition.column;
+
+    // 向前截取到行首，检查是否包含 export 关键字
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    const prefix = source.slice(lineStart, offset);
+    return /\bexport\b/.test(prefix);
   }
 
   private extractSignature(node: TSNode): string | undefined {

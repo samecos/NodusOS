@@ -5,6 +5,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
+import { platform } from 'node:os';
 import type { Language, ProjectMeta, PackageManager, Framework, Dependency, RuntimeRequirement } from '../common/types.js';
 import type { EnvironmentManager, RuntimeStatus, EnvStatus, DepInstallReport } from './environment-manager.js';
 
@@ -131,7 +132,6 @@ export class EnvironmentManagerImpl implements EnvironmentManager {
       // 检查是否已安装满足要求的版本
       const status = await this.checkRuntime(language, version);
       if (status.kind === 'installed') {
-        // 已安装，无需操作
         this.currentStatus = { kind: 'ready', meta: this.cachedMeta! };
         return;
       }
@@ -139,29 +139,90 @@ export class EnvironmentManagerImpl implements EnvironmentManager {
       // checkRuntime 失败，继续尝试安装
     }
 
-    // 尝试安装
+    const major = this.parseMajorVersion(version);
+
     try {
       if (language === 'typescript' || language === 'javascript') {
-        // Node.js: 检查是否已有可用的 node，版本不足时提示
-        const current = this.getNodeVersion();
-        if (current) {
-          console.log(`[EnvMgr] Node ${current} detected, using existing installation`);
-        } else {
-          console.log('[EnvMgr] Node.js required — please install via https://nodejs.org or fnm');
-        }
+        await this.installNodeRuntime(major);
       } else if (language === 'python') {
-        const current = this.getPythonVersion();
-        if (current) {
-          console.log(`[EnvMgr] Python ${current} detected, using existing installation`);
-        } else {
-          console.log('[EnvMgr] Python required — please install via https://python.org or pyenv');
-        }
+        await this.installPythonRuntime(major);
       }
     } catch (err) {
-      console.error(`[EnvMgr] Runtime check failed: ${err}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[EnvMgr] Runtime installation failed: ${msg}`);
     }
 
     this.currentStatus = { kind: 'ready', meta: this.cachedMeta! };
+  }
+
+  private async installNodeRuntime(major: string): Promise<void> {
+    // 优先使用版本管理器，避免污染系统全局运行时
+    if (this.hasCommand('fnm')) {
+      console.log(`[EnvMgr] Installing Node.js ${major}.x via fnm...`);
+      this.exec(`fnm install ${major} 2>/dev/null || true`);
+      this.exec(`fnm use ${major}`);
+      return;
+    }
+
+    if (this.hasCommand('nvm')) {
+      console.log(`[EnvMgr] Installing Node.js ${major}.x via nvm...`);
+      this.exec(`source ~/.nvm/nvm.sh && nvm install ${major} 2>/dev/null || true`);
+      this.exec(`source ~/.nvm/nvm.sh && nvm use ${major}`);
+      return;
+    }
+
+    // 尝试系统包管理器（仅安装主版本，不覆盖用户已有版本）
+    const os = platform();
+    if (os === 'darwin' && this.hasCommand('brew')) {
+      console.log(`[EnvMgr] Installing Node.js ${major}.x via brew...`);
+      this.exec(`brew install node@${major} 2>/dev/null || brew install node`);
+      return;
+    }
+
+    if (os === 'linux') {
+      if (this.hasCommand('apt-get')) {
+        console.log(`[EnvMgr] Installing Node.js via apt...`);
+        this.exec('apt-get install -y nodejs npm');
+        return;
+      }
+      if (this.hasCommand('dnf')) {
+        console.log(`[EnvMgr] Installing Node.js via dnf...`);
+        this.exec('dnf install -y nodejs');
+        return;
+      }
+    }
+
+    console.log(`[EnvMgr] Node.js ${major}.x required — please install via https://nodejs.org, fnm, or nvm`);
+  }
+
+  private async installPythonRuntime(major: string): Promise<void> {
+    if (this.hasCommand('pyenv')) {
+      console.log(`[EnvMgr] Installing Python ${major}.x via pyenv...`);
+      this.exec(`pyenv install ${major}.latest 2>/dev/null || pyenv install ${major}`);
+      return;
+    }
+
+    const os = platform();
+    if (os === 'darwin' && this.hasCommand('brew')) {
+      console.log(`[EnvMgr] Installing Python ${major}.x via brew...`);
+      this.exec(`brew install python@${major} 2>/dev/null || brew install python`);
+      return;
+    }
+
+    if (os === 'linux') {
+      if (this.hasCommand('apt-get')) {
+        console.log(`[EnvMgr] Installing Python via apt...`);
+        this.exec('apt-get install -y python3 python3-pip');
+        return;
+      }
+      if (this.hasCommand('dnf')) {
+        console.log(`[EnvMgr] Installing Python via dnf...`);
+        this.exec('dnf install -y python3 python3-pip');
+        return;
+      }
+    }
+
+    console.log(`[EnvMgr] Python ${major}.x required — please install via https://python.org or pyenv`);
   }
 
   async installDependencies(project: ProjectMeta): Promise<DepInstallReport> {
@@ -269,5 +330,28 @@ export class EnvironmentManagerImpl implements EnvironmentManager {
       if (a < r) return false;
     }
     return true; // 相等
+  }
+
+  private parseMajorVersion(version: string): string {
+    const clean = version.replace(/[^\d.]/g, '');
+    return clean.split('.')[0] ?? '';
+  }
+
+  private hasCommand(command: string): boolean {
+    try {
+      execSync(`command -v ${command}`, { stdio: 'pipe' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private exec(command: string): string {
+    try {
+      return execSync(command, { encoding: 'utf-8', stdio: 'pipe' }).trim();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Command failed: ${command}\n${msg}`);
+    }
   }
 }

@@ -21,6 +21,7 @@ import type { EnvironmentManager } from '../env-mgr/environment-manager.js';
 import type { GitIntelligence } from '../git-intel/git-intelligence.js';
 import type { FileWatcher } from '../file-watcher/file-watcher.js';
 import type { IntentEngine, QueryIntent } from '../intent/intent-engine.js';
+import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { VoicePipeline } from '../voice/voice-pipeline.js';
 
 export interface NodusConfig {
@@ -121,8 +122,9 @@ export class NodusShell {
         meta.languages[0] ?? 'typescript',
         meta.runtimes[0]?.constraint ?? '>=18.0.0',
       );
+      const runtimeConstraint = meta.runtimes[0]?.constraint ?? '>=18.0.0';
       if (runtimeStatus.kind !== 'installed') {
-        await this.envMgr.installRuntime(meta.languages[0] ?? 'typescript', '');
+        await this.envMgr.installRuntime(meta.languages[0] ?? 'typescript', runtimeConstraint);
       }
       await this.envMgr.installDependencies(meta);
 
@@ -171,7 +173,7 @@ export class NodusShell {
       intent_type: result.intentType,
       confidence: result.confidence,
       latency_ms: 0,
-      result_count: 'symbols' in queryResult ? (queryResult as { symbols: unknown[] }).symbols.length : 0,
+      result_count: this.countResults(queryResult),
       timestamp: new Date().toISOString(),
     });
 
@@ -200,7 +202,7 @@ export class NodusShell {
       intent_type: intent.intentType,
       confidence: intent.confidence,
       latency_ms: 0,
-      result_count: 'symbols' in queryResult ? (queryResult as { symbols: unknown[] }).symbols.length : 0,
+      result_count: this.countResults(queryResult),
       timestamp: new Date().toISOString(),
     });
 
@@ -214,6 +216,26 @@ export class NodusShell {
     this.store.close();
     this.eventBus.clear();
     console.log('[Nodus] Goodbye.');
+  }
+
+  // ---- helpers ----
+
+  private countResults(result: QueryResult): number {
+    switch (result.kind) {
+      case 'symbol_list':
+      case 'symbol_overview':
+        return result.symbols.length;
+      case 'reference_list':
+        return result.references.length;
+      case 'call_graph':
+        return result.graph.nodes.length;
+      case 'impact_report':
+        return result.report.directCallers.length;
+      case 'change_history':
+        return result.records.length;
+      default:
+        return 0;
+    }
   }
 
   // ---- event routing ----

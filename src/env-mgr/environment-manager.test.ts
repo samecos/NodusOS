@@ -3,7 +3,7 @@
 // TC-UT-EM-001 ~ TC-UT-EM-009
 // ============================================================
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -99,5 +99,21 @@ requires-python = ">=3.12"
   it('should detect Poetry', () => {
     writeFileSync(join(testDir, 'pyproject.toml'), '[tool.poetry]\nname = "test"\n');
     expect(em.detectPackageManager(testDir)).toBe('poetry');
+  });
+
+  // TC-UT-EM-010: installRuntime 在已安装时直接返回
+  it('TC-UT-EM-010: should skip install when runtime is already installed', async () => {
+    // 当前环境通常已安装 Node，checkRuntime 会返回 installed
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await em.installRuntime('typescript', '>=1.0.0');
+      // 不应打印安装提示
+      const installMessages = spy.mock.calls.filter(
+        ([msg]) => typeof msg === 'string' && msg.includes('required — please install'),
+      );
+      expect(installMessages.length).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

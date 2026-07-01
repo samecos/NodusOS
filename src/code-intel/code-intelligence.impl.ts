@@ -17,7 +17,7 @@ import type {
   CodeIntelligence, IndexReport, FileIndexResult,
   ImpactReport, ChangeRecord, QueryIntent, QueryResult, ChangeScope,
 } from './code-intelligence.js';
-import type { GitIntelligence } from '../git-intel/git-intelligence.js';
+import type { GitIntelligence, DiffData } from '../git-intel/git-intelligence.js';
 import { TypeScriptParser } from './parsers/typescript-parser.js';
 import { PythonParser } from './parsers/python-parser.js';
 
@@ -90,16 +90,12 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
         const refs = parser.parseReferences(source, symbols);
         const callEdges = parser.parseCallEdges(source, symbols);
 
-        // 填充引用中的 source 信息
-        const symbolMap = new Map(symbols.map(s => [s.name, s]));
+        // 填充引用中的 source 信息：根据引用所在位置找到包含它的函数/方法/类
         for (const ref of refs) {
-          // 从调用边推断引用方
-          for (const edge of callEdges) {
-            if (edge.callee_name === symbolMap.get(ref.target_symbol_id.split(':').pop() ?? '')?.name) {
-              const caller = allSymbols.find(s => s.name === edge.caller_name)
-                ?? symbols.find(s => s.name === edge.caller_name);
-              if (caller) ref.source_symbol_id = caller.id;
-            }
+          const enclosing = this.findEnclosingSymbol(ref.location.file_path, ref.location.line_start, allSymbols)
+            ?? this.findEnclosingSymbol(ref.location.file_path, ref.location.line_start, symbols);
+          if (enclosing) {
+            ref.source_symbol_id = enclosing.id;
           }
         }
 
@@ -115,6 +111,30 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
         report.filesFailed++;
         report.errors.push({ file, error: String(err) });
       }
+    }
+
+    // 跨文件引用解析：将 external:name / unknown:name 解析到项目内导出符号
+    const exportedSymbolMap = new Map<string, Symbol>();
+    for (const sym of allSymbols) {
+      if (sym.is_exported && !exportedSymbolMap.has(sym.name)) {
+        exportedSymbolMap.set(sym.name, sym);
+      }
+    }
+
+    let resolvedCount = 0;
+    for (const ref of allRefs) {
+      if (ref.target_symbol_id.startsWith('external:') || ref.target_symbol_id.startsWith('unknown:')) {
+        const name = ref.target_symbol_id.split(':')[1];
+        const target = exportedSymbolMap.get(name);
+        if (target) {
+          ref.target_symbol_id = target.id;
+          resolvedCount++;
+        }
+      }
+    }
+    if (resolvedCount > 0) {
+      this.store.refsUpsert(allRefs);
+      report.referencesFound += 0; // 不新增引用，仅解析目标
     }
 
     // 构建全局调用图并存储
@@ -193,30 +213,56 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
   }
 
   async impactAnalysis(symbolId: SymbolId): Promise<ImpactReport | null> {
-    const allRefs = this.store.refsFindByTarget(symbolId);
-    if (allRefs.length === 0) return null;
+    const directRefs = this.store.refsFindByTarget(symbolId);
+    if (directRefs.length === 0) return null;
 
-    const callerIds = [...new Set(allRefs.map(r => r.source_symbol_id).filter(Boolean))];
-    const affectedFiles = [...new Set(allRefs.map(r => r.location.file_path))];
+    const directCallerIds = [...new Set(directRefs.map(r => r.source_symbol_id).filter(Boolean))];
 
-    // 获取直接调用方符号
-    const directCallers: Symbol[] = [];
-    for (const id of callerIds) {
-      const syms = this.store.symbolsFindByName(id, undefined, 1);
-      if (syms[0]) directCallers.push(syms[0]);
+    // BFS 收集传递调用方
+    const transitiveCallerIds = new Set<SymbolId>();
+    const visited = new Set<SymbolId>([symbolId]);
+    const queue = [...directCallerIds];
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (visited.has(current)) continue;
+      visited.add(current);
+
+      const refs = this.store.refsFindByTarget(current);
+      const callers = refs.map(r => r.source_symbol_id).filter((id): id is SymbolId => Boolean(id));
+      for (const caller of callers) {
+        if (!directCallerIds.includes(caller) && caller !== symbolId) {
+          transitiveCallerIds.add(caller);
+        }
+        queue.push(caller);
+      }
     }
+
+    // 收集受影响文件
+    const allCallerIds = [...directCallerIds, ...transitiveCallerIds];
+    const affectedFiles = [...new Set([
+      ...directRefs.map(r => r.location.file_path),
+      ...allCallerIds.flatMap(id => this.store.refsFindByTarget(id).map(r => r.location.file_path)),
+    ])];
+
+    const symbolById = (id: SymbolId): Symbol | undefined => this.store.symbolsFindById(id);
+
+    const directCallers = directCallerIds.map(symbolById).filter((s): s is Symbol => s !== undefined);
+    const transitiveCallers = [...transitiveCallerIds].map(symbolById).filter((s): s is Symbol => s !== undefined);
 
     const riskLevel: RiskLevel = affectedFiles.length > 15 ? 'high'
       : affectedFiles.length > 5 ? 'medium' : 'low';
 
-    const rootSymbol = this.store.symbolsFindByName(symbolId, undefined, 1)[0];
+    const rootSymbol = this.store.symbolsFindById(symbolId);
 
     return {
-      symbol: rootSymbol ?? { id: symbolId, name: symbolId, kind: 'function', language: 'typescript',
+      symbol: rootSymbol ?? {
+        id: symbolId, name: symbolId, kind: 'function', language: 'typescript',
         location: { file_path: '', line_start: 0, line_end: 0, col_start: 0, col_end: 0 },
-        is_exported: false },
+        is_exported: false,
+      },
       directCallers,
-      transitiveCallers: [],
+      transitiveCallers,
       affectedFiles,
       riskLevel,
     };
@@ -260,14 +306,21 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
         );
 
         for (const commit of commits) {
-          // 获取该 commit 涉及的符号
-          const fileSyms = this.store.symbolsFindByFile(file);
+          let changedSymbols: Symbol[] = [];
+          try {
+            const diff = await gitImpl.diff(this.projectRoot, commit.hash);
+            changedSymbols = this.symbolsFromDiff(diff);
+          } catch {
+            // diff 解析失败时降级为返回该文件所有符号
+            changedSymbols = this.store.symbolsFindByFile(file);
+          }
+
           records.push({
             commitHash: commit.hash,
             commitMessage: commit.message,
             author: commit.author,
             timestamp: commit.timestamp,
-            changedSymbols: fileSyms,
+            changedSymbols,
             diffSummary: `${commit.filesChanged} files, +${commit.insertions} -${commit.deletions}`,
           });
         }
@@ -286,6 +339,37 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
         return true;
       })
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  }
+
+  private symbolsFromDiff(diff: DiffData): Symbol[] {
+    const changedSymbols: Symbol[] = [];
+    const seenIds = new Set<SymbolId>();
+
+    for (const fileDiff of diff.files) {
+      const changedLines = new Set<number>();
+      for (const hunk of fileDiff.hunks) {
+        for (const line of hunk.lines) {
+          if (line.type === 'added' && line.newLine) changedLines.add(line.newLine);
+          if (line.type === 'removed' && line.oldLine) changedLines.add(line.oldLine);
+        }
+      }
+      if (changedLines.size === 0) continue;
+
+      const filePath = join(this.projectRoot!, fileDiff.path);
+      const syms = this.store.symbolsFindByFile(filePath);
+      for (const sym of syms) {
+        if (seenIds.has(sym.id)) continue;
+        for (const line of changedLines) {
+          if (sym.location.line_start <= line && sym.location.line_end >= line) {
+            changedSymbols.push(sym);
+            seenIds.add(sym.id);
+            break;
+          }
+        }
+      }
+    }
+
+    return changedSymbols;
   }
 
   async query(intent: QueryIntent): Promise<QueryResult> {
@@ -362,6 +446,20 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
     if (['.js', '.jsx'].includes(ext)) return 'javascript';
     if (ext === '.py') return 'python';
     return null;
+  }
+
+  private findEnclosingSymbol(filePath: string, line: number, symbols: Symbol[]): Symbol | undefined {
+    let best: Symbol | undefined;
+    for (const sym of symbols) {
+      if (sym.location.file_path !== filePath) continue;
+      if (sym.location.line_start > line || sym.location.line_end < line) continue;
+      // 优先选择函数/方法/类作为引用方，跳过变量/参数等局部声明
+      if (sym.kind === 'variable' || sym.kind === 'parameter') continue;
+      if (!best || sym.location.line_start > best.location.line_start) {
+        best = sym;
+      }
+    }
+    return best;
   }
 
   private buildGlobalCallGraph(

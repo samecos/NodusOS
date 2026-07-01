@@ -160,6 +160,11 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
     return (this.db.prepare(sql).all(...params) as Record<string, unknown>[]).map(this.rowToSymbol);
   }
 
+  symbolsFindById(id: SymbolId): Symbol | undefined {
+    const row = this.db.prepare('SELECT * FROM symbols WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    return row ? this.rowToSymbol(row) : undefined;
+  }
+
   symbolsFindByFile(filePath: string): Symbol[] {
     const rows = this.db.prepare(
       'SELECT * FROM symbols WHERE file_path = ? ORDER BY line_start'

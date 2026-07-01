@@ -80,6 +80,101 @@ refundOrder(100);
     expect(symbols).toHaveLength(0);
   });
 
+  // TC-UT-CI-016: 正确识别导出与非导出符号
+  it('TC-UT-CI-016: should distinguish exported and non-exported symbols', () => {
+    const source = `
+function internalHelper(): void {}
+export function publicApi(): void {}
+
+class InternalClass {}
+export class PublicClass {}
+`;
+    const symbols = parser.parseSymbols(source, 'src/export.ts');
+    const internalFn = symbols.find(s => s.name === 'internalHelper');
+    const publicFn = symbols.find(s => s.name === 'publicApi');
+    const internalClass = symbols.find(s => s.name === 'InternalClass');
+    const publicClass = symbols.find(s => s.name === 'PublicClass');
+
+    expect(internalFn).toBeDefined();
+    expect(publicFn).toBeDefined();
+    expect(internalClass).toBeDefined();
+    expect(publicClass).toBeDefined();
+
+    expect(internalFn!.is_exported).toBe(false);
+    expect(publicFn!.is_exported).toBe(true);
+    expect(internalClass!.is_exported).toBe(false);
+    expect(publicClass!.is_exported).toBe(true);
+  });
+
+  // TC-UT-CI-018: 识别类型引用
+  it('TC-UT-CI-018: should extract type use references', () => {
+    const source = `
+interface RefundResult {
+  status: string;
+}
+
+export function refundOrder(orderId: string): Promise<RefundResult> {
+  return Promise.resolve({ status: 'ok' });
+}
+`;
+    const symbols = parser.parseSymbols(source, 'src/payment.ts');
+    const refundResult = symbols.find(s => s.name === 'RefundResult')!;
+    const refs = parser.parseReferences(source, symbols);
+
+    const typeUses = refs.filter(r => r.kind === 'type_use');
+    expect(typeUses.length).toBeGreaterThanOrEqual(1);
+    expect(typeUses.map(r => r.target_symbol_id)).toContain(refundResult.id);
+  });
+
+  // TC-UT-CI-019: 识别继承关系
+  it('TC-UT-CI-019: should extract inheritance references', () => {
+    const source = `
+class BaseService {}
+export class PaymentService extends BaseService {}
+`;
+    const symbols = parser.parseSymbols(source, 'src/payment.ts');
+    const baseService = symbols.find(s => s.name === 'BaseService')!;
+    const refs = parser.parseReferences(source, symbols);
+
+    const inheritances = refs.filter(r => r.kind === 'inheritance');
+    expect(inheritances.length).toBeGreaterThanOrEqual(1);
+    expect(inheritances.map(r => r.target_symbol_id)).toContain(baseService.id);
+  });
+
+  // TC-UT-CI-021: 识别 new 表达式实例化引用
+  it('TC-UT-CI-021: should extract new expression references', () => {
+    const source = `
+class PaymentService {}
+const service = new PaymentService();
+`;
+    const symbols = parser.parseSymbols(source, 'src/payment.ts');
+    const serviceClass = symbols.find(s => s.name === 'PaymentService')!;
+    const refs = parser.parseReferences(source, symbols);
+
+    const instantiations = refs.filter(r => r.kind === 'instantiation');
+    expect(instantiations.length).toBeGreaterThanOrEqual(1);
+    expect(instantiations.map(r => r.target_symbol_id)).toContain(serviceClass.id);
+  });
+
+  // TC-UT-CI-020: 识别装饰器引用
+  it('TC-UT-CI-020: should extract decorator references', () => {
+    const source = `
+function Controller(prefix: string) {
+  return function (target: any) {};
+}
+
+@Controller('/payments')
+export class PaymentController {}
+`;
+    const symbols = parser.parseSymbols(source, 'src/payment.ts');
+    const controller = symbols.find(s => s.name === 'Controller')!;
+    const refs = parser.parseReferences(source, symbols);
+
+    const decorators = refs.filter(r => r.kind === 'decorator_use');
+    expect(decorators.length).toBeGreaterThanOrEqual(1);
+    expect(decorators.map(r => r.target_symbol_id)).toContain(controller.id);
+  });
+
   // TC-UT-CI-008: 语法错误文件 — 务实降级
   it('TC-UT-CI-008: should not throw on syntax error', () => {
     const source = 'function broken({' ; // 语法错误
@@ -180,5 +275,23 @@ os.path.join('/tmp', 'test')
 
     const importRefs = refs.filter(r => r.kind === 'import');
     expect(importRefs.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // TC-UT-CI-017: parseReferences 应使用 symbols 中的文件路径
+  it('TC-UT-CI-017: should use file path from symbols in references', () => {
+    const source = `
+def refund_order(amount):
+    return process_payment(amount)
+
+refund_order(100)
+`;
+    const customPath = 'src/payment/core.py';
+    const symbols = parser.parseSymbols(source, customPath);
+    const refs = parser.parseReferences(source, symbols);
+
+    expect(refs.length).toBeGreaterThanOrEqual(1);
+    for (const ref of refs) {
+      expect(ref.location.file_path).toBe(customPath);
+    }
   });
 });

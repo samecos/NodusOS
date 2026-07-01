@@ -101,6 +101,9 @@ export class GitIntelligenceImpl implements GitIntelligence {
 
     const lines = output.split('\n');
     let currentFile: DiffData['files'][0] | null = null;
+    let currentHunk: DiffHunk | null = null;
+    let oldLine = 0;
+    let newLine = 0;
 
     for (const line of lines) {
       if (line.startsWith('diff --git')) {
@@ -111,25 +114,39 @@ export class GitIntelligenceImpl implements GitIntelligence {
           changeType: 'modified',
           hunks: [],
         };
+        currentHunk = null;
         stats.filesChanged++;
       } else if (line.startsWith('@@') && currentFile) {
         const hunkMatch = line.match(/@@ -(\d+),?(\d+)? \+(\d+),?(\d+)? @@/);
-        currentFile.hunks.push({
-          oldStart: parseInt(hunkMatch?.[1] ?? '1'), oldLines: parseInt(hunkMatch?.[2] ?? '1'),
-          newStart: parseInt(hunkMatch?.[3] ?? '1'), newLines: parseInt(hunkMatch?.[4] ?? '1'),
+        currentHunk = {
+          oldStart: parseInt(hunkMatch?.[1] ?? '1'),
+          oldLines: parseInt(hunkMatch?.[2] ?? '1'),
+          newStart: parseInt(hunkMatch?.[3] ?? '1'),
+          newLines: parseInt(hunkMatch?.[4] ?? '1'),
           lines: [],
-        });
-        // 清除旧的当前文件以便新文件插入
-        files.push(currentFile);
-        currentFile = null;
-      } else if (line.startsWith('+')) { stats.insertions++; }
-      else if (line.startsWith('-')) { stats.deletions++; }
+        };
+        currentFile.hunks.push(currentHunk);
+        oldLine = currentHunk.oldStart;
+        newLine = currentHunk.newStart;
+      } else if (currentHunk) {
+        if (line.startsWith('+')) {
+          currentHunk.lines.push({ type: 'added', content: line.slice(1), newLine: newLine++ });
+          stats.insertions++;
+        } else if (line.startsWith('-')) {
+          currentHunk.lines.push({ type: 'removed', content: line.slice(1), oldLine: oldLine++ });
+          stats.deletions++;
+        } else if (line.startsWith(' ')) {
+          currentHunk.lines.push({ type: 'context', content: line.slice(1), oldLine, newLine });
+          oldLine++;
+          newLine++;
+        }
+        // 以 '\\' 开头的行是 "No newline at end of file" 标记，忽略
+      }
     }
 
-    return {
-      files: files.filter(f => f.path).map(f => ({ ...f, hunks: [] })),
-      stats,
-    };
+    if (currentFile) files.push(currentFile);
+
+    return { files, stats };
   }
 
   private parseBlame(output: string): BlameInfo {

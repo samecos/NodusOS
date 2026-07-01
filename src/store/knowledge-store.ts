@@ -15,6 +15,7 @@ export interface KnowledgeStore {
   symbolsUpsert(symbols: Symbol[]): number;
   symbolsRemove(filePath: string): number;
   symbolsFindByName(name: string, kind?: SymbolKind, limit?: number): Symbol[];
+  symbolsFindById(id: SymbolId): Symbol | undefined;
   symbolsFindByFile(filePath: string): Symbol[];
   symbolsFindByModule(modulePath: string): Symbol[];
   symbolsSearch(query: string, limit?: number): Symbol[];

@@ -56,7 +56,8 @@ export class PythonParser implements LanguageParser {
     const symbolMap = new Map<string, Symbol>();
     for (const sym of symbols) symbolMap.set(sym.name, sym);
 
-    this.walkForRefs(tree.rootNode, source, 'src/test.py', symbolMap, refs);
+    const filePath = symbols[0]?.location.file_path ?? 'src/test.py';
+    this.walkForRefs(tree.rootNode, source, filePath, symbolMap, refs);
     return refs;
   }
 

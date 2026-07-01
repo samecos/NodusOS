@@ -1,343 +1,369 @@
-# Nodus (结绳) — AI Agent Instructions
+# Nodus（结绳）— AI Agent 项目指南
 
-## Project Identity
-
-**Nodus (结绳)** is an AI-Native Operating System for developers. Unlike traditional OSes that route through file systems and window managers, Nodus routes through a natural-language intent-understanding engine. The MVP focuses on two foundational capabilities:
-
-- **Semantic Code Index** (the brain) — understand codebases at the symbol/reference/call-graph level
-- **Fully Managed Environment** (the hands) — detect, install, and configure runtimes and dependencies with zero user commands
-
-**One-line definition**: Understand your codebase by talking to it. The environment is invisible.
+> 本文件面向 AI 编码助手。阅读前请假设你对本项目一无所知；本文内容基于项目实际文件与运行结果整理，优先反映当前代码状态，而非设计文档中的愿景。
 
 ---
 
-## Core Design Principles
+## 1. 项目概述
 
-These are non-negotiable. Every design and implementation decision must be traceable to one of them.
+**Nodus（结绳）** 是一个面向开发者的 AI-Native 操作系统原型。当前阶段是一个运行在终端里的 Node.js CLI 应用：用户用自然语言（中英文）询问代码库，系统返回符号定义、引用、调用链路、影响范围、变更历史等结构化结果。
 
-### Six Principles
+一句话定义：**用说话的方式理解代码库。环境这件事不让人看见。**
 
-| # | Principle | Meaning |
-|---|-----------|---------|
-| P1 | **Intent-driven, not command-driven** | User expresses *what*, system figures out *how* |
-| P2 | **Voice-first, UI as fallback** | 80% of operations should work with eyes closed; UI is auxiliary |
-| P3 | **System adapts to human** | Zero learning curve; same engine, different personas (grandma ↔ senior engineer) |
-| P4 | **Global context, boundary-less scheduling** | Data lives in one semantic space, not in app silos |
-| P5 | **Proactive computation, human-authorized** | System can anticipate but never overstep per-domain user grants |
-| P6 | **Cognitive offload, pragmatic degradation** | Automate everything possible; honestly report what's not |
+当前 MVP 聚焦两块基石：
 
-### Six Anti-Principles (what Nodus is NOT)
+1. **语义代码索引（脑）**：基于 tree-sitter 抽取符号、引用、调用图。
+2. **全托管环境（手）**：自动检测项目类型、运行时与依赖，并尝试安装。
 
-1. Not an AI wrapper on a traditional desktop (not Copilot in Windows)
-2. Not a chatbot interface (not a ChatGPT shell)
-3. Does not expose computer concepts to users (no file paths, app names, menus)
-4. Not a notification spammer (proactive pushes must pass three gates: authorized domain + value judgment + low intrusion)
-5. Not a walled garden (open Skill ecosystem)
-6. Does not pretend to be omniscient (degrade honestly when capabilities fall short)
-
-### Conflict Resolution Order
-
-When principles conflict: **Human authorization > Proactive computation > Pragmatic degradation > Experience consistency > Voice-first > Visual presentation > System adapts to human > Feature completeness**
+> 重要：本项目不是编辑器替代品，定位是与 VSCode 等工具共存的“OS 层信息整合器”。
 
 ---
 
-## Architecture
+## 2. 技术栈与运行环境
 
-### Style: Modular Monolith + Event-Driven
+| 层级 | 实际选用 | 说明 |
+|------|----------|------|
+| 运行时 | Node.js + TypeScript | 当前唯一实现语言 |
+| 模块系统 | ESM | `package.json` 中 `"type": "module"`，`tsconfig.json` 用 `nodenext` |
+| 数据库 | SQLite via `better-sqlite3` | 本地嵌入式，无服务端 |
+| 代码解析 | `tree-sitter` + 各语言 grammar | 支持 TS/JS/Python |
+| 测试 | Vitest | 配置见 `vitest.config.ts` |
+| 类型检查 | `tsc --noEmit` | 严格模式已开启 |
+| 开发启动 | `tsx src/main.ts` | 见 `npm run dev` |
 
-All modules run in one process during MVP. Communication via typed interfaces (TypeScript interfaces / Rust traits) plus a global EventBus for loose coupling. Designed to be splittable into separate processes later.
+### 2.1 入口与运行方式
 
-### Layer Model (top-down dependency only)
+入口文件为 `src/main.ts`：
 
-```
-HUMAN INTERFACE LAYER
-  Voice Pipeline (STT/TTS/Wake)  |  Text Input (Ctrl+Space)  |  UI Renderer (Cards, Code View, Breath Light)
+```bash
+# 安装依赖
+npm install
 
-INTENT ORCHESTRATION LAYER
-  Intent Engine (NLU + Entity Extraction + Classification)  |  Context Manager (File, Cursor, Selection, History)
+# 启动并打开当前目录项目
+npm run dev
 
-CAPABILITY LAYER
-  Code Intelligence (Parser Mgr, Symbol Extractor, Ref Resolver, CallGraph Builder, Query Engine)
-  Environment Manager (Runtime Detection, Installation, Dependency Management)
-  Git Intelligence (Log, Diff, Blame)
-  File Watcher (FS events → incremental index updates)
-
-DATA & KNOWLEDGE LAYER
-  Knowledge Store (SQLite + in-memory index for hot paths)  |  Preferences (KV store)  |  Query History
+# 启动并打开指定项目
+npm run dev /path/to/your/project
 ```
 
-**Rule**: Upper layers may call lower layers. Lower layers may only emit events upward via EventBus — never hold references to upper layers.
+启动后进入 REPL，输入自然语言查询，例如：
 
-### Module Map
+```
+refundOrder在哪里定义的
+PaymentService被哪些地方调用了
+auth模块最近一周改了什么
+```
 
-| Module | Directory | Status | Responsibility |
-|--------|-----------|--------|----------------|
-| **Nodus Shell** | `src/shell/` | ⬜ Not started | App lifecycle, module registration, event bus |
-| **Intent Engine** | `src/intent/` | ⬜ Not started | NLU: classify intent, extract entities, handle ambiguity |
-| **Context Manager** | `src/context/` | ✅ Complete | Track active file, cursor, selection, recent queries |
-| **Code Intelligence** | `src/code-intel/` | 🟡 Interface + parsers | Semantic indexing of codebases (tree-sitter) |
-| **Environment Manager** | `src/env-mgr/` | ⬜ Not started | Detect, install, configure runtimes and dependencies |
-| **Git Intelligence** | `src/git-intel/` | ⬜ Not started | Git log, diff, blame, changed-symbol tracking |
-| **File Watcher** | `src/file-watcher/` | ⬜ Not started | FS event monitoring → trigger incremental indexing |
-| **Voice Pipeline** | `src/voice/` | ⬜ Not started | Wake word detection, STT, TTS, silent mode |
-| **UI Renderer** | `src/ui/` | ⬜ Not started | Card rendering (call graph, references, history), code viewer, status indicator |
-| **Knowledge Store** | `src/store/` | ✅ Complete | SQLite persistence + in-memory hot-path indexes |
-| **Common Types** | `src/common/` | ✅ Complete | All shared TypeScript interfaces and type definitions |
+输入 `/quit` 或 `/exit` 退出。
 
-### Key Data Models
+### 2.2 原生依赖警告
 
-Located in `src/common/types.ts`. Core entities:
-
-- **Symbol** — function, class, interface, variable, etc. with source location, kind, language, signature
-- **Reference** — directed edge from one symbol to another (call, import, inheritance, type use, etc.)
-- **CallGraph** — nodes + edges representing call relationships, with risk annotations
-- **QueryIntent** — structured representation of a natural language query (intent type + extracted entities + confidence)
-- **Card** — ephemeral UI unit: call graph card, reference list card, change history card, ambiguity card, env status card
-- **ProjectMeta** — detected project metadata: languages, runtimes, package manager, framework, dependencies
+项目依赖 `better-sqlite3` 与 `tree-sitter` 两个带原生二进制（`.node`）的 npm 包。**在某些 macOS 环境上，这些预编译二进制可能因签名/架构问题无法加载**，导致知识存储与代码解析相关测试无法运行。实际运行前若遇到 `dlopen` 报错，通常需要重新从源码编译这两个包（`npm rebuild` 或参照各包官方文档处理）。
 
 ---
 
-## Technology Stack
+## 3. 项目结构与模块划分
 
-| Layer | Choice | Notes |
-|-------|--------|-------|
-| Runtime | Node.js (TypeScript) | Current implementation language. Long-term plan: Tauri (Rust backend + Web frontend) |
-| Database | SQLite via `better-sqlite3` | WAL mode, embedded, zero-config |
-| Code Parsing | `tree-sitter` + language grammars | `tree-sitter-typescript`, `tree-sitter-javascript`, `tree-sitter-python` |
-| Testing | Vitest | Unit tests in `src/**/*.test.ts`, integration tests in `src/**/*.integration.test.ts` |
-| Type Checking | `tsc --noEmit` | Strict mode enabled |
-| Module System | ESM (`"type": "module"`) | NodeNext resolution |
-| Target | ES2022 | |
-
-### Future Stack (post-MVP)
-
-- **Application shell**: Tauri (Rust + React frontend)
-- **UI**: React 18 + SVG (call graphs) + Monaco Editor (code viewer)
-- **Voice (long-term)**: Whisper.cpp (local, offline, privacy-preserving)
-- **Build**: Vite
-
----
-
-## Project Structure
+### 3.1 顶层目录
 
 ```
 NodusOS/
-├── docs/                              # Product & architecture docs
-│   ├── 01-principles.md               # Core principles & anti-principles
-│   ├── 02-personas.md                 # Target user personas
-│   ├── 02b-developer-persona-deep-dive.md
-│   ├── 02c-developer-native-os.md
-│   ├── 03-user-journeys.md            # End-to-end user journeys
-│   ├── 04-interaction-paradigm.md     # Voice-first interaction model
-│   ├── 05-mvp-scope.md                # MVP feature boundary & success criteria
-│   ├── 06-architecture.md             # System architecture (layers, modules, data flows)
-│   └── 07-detailed-design.md          # Detailed interface design
-├── RequirementAnalysisPhase/          # Phase 1: Product requirements
-│   ├── 01-PRD.md                      # Product Requirements Document
-│   ├── 02-Wireframes.md               # UI wireframes
-│   └── 03-Flowcharts.md               # User flow diagrams
-├── ArchitecturalDesignPhase/          # Phase 2: Technical architecture
-│   ├── 01-HLD.md                      # High-Level Design (ADR records)
-│   ├── 02-DDD.md                      # Domain-Driven Design
-│   ├── 03-Database-Schema.md          # SQLite schema design
-│   └── 04-API-Reference.md            # Module interface contracts
-├── TestDesignPhase/                   # Phase 3: Test strategy
-│   ├── 01-Test-Plan.md                # TDD methodology, test pyramid, quality gates
-│   ├── 02-Test-Cases.md               # Detailed test cases
-│   └── 03-Acceptance-Criteria.md      # User story acceptance criteria
-├── src/                               # Source code
-│   ├── common/types.ts                # All shared types (Symbol, Reference, CallGraph, etc.)
-│   ├── context/                       # ContextManager (✅ complete)
-│   ├── store/                         # KnowledgeStore, SQLite implementation (✅ complete)
-│   ├── code-intel/                    # CodeIntelligence interface + parsers (🟡 in progress)
-│   │   └── parsers/                   # Language-specific tree-sitter parsers
-│   ├── shell/                         # Nodus Shell (⬜ not started)
-│   ├── intent/                        # Intent Engine (⬜ not started)
-│   ├── env-mgr/                       # Environment Manager (⬜ not started)
-│   ├── file-watcher/                  # File Watcher (⬜ not started)
-│   ├── git-intel/                     # Git Intelligence (⬜ not started)
-│   ├── voice/                         # Voice Pipeline (⬜ not started)
-│   └── ui/                            # UI Renderer (⬜ not started)
-├── tests/
-│   └── fixtures/                      # Test fixtures (tiny/medium/large projects)
+├── src/                          # 源码
+├── tests/fixtures/               # 测试夹具（如 tiny-project）
+├── docs/                         # 产品/架构文档（中文）
+├── RequirementAnalysisPhase/     # 需求阶段文档
+├── ArchitecturalDesignPhase/     # 架构阶段文档
+├── TestDesignPhase/              # 测试阶段文档
 ├── package.json
 ├── tsconfig.json
-└── vitest.config.ts
+├── vitest.config.ts
+└── readme.md
 ```
+
+### 3.2 `src/` 源码组织（按实际文件）
+
+```
+src/
+├── main.ts                       # CLI 入口
+├── common/types.ts               # 核心共享类型（Symbol、Reference、CallGraph 等）
+│
+├── shell/                        # 外壳：事件总线 + 模块编排
+│   ├── event-bus.ts              # 事件总线接口
+│   ├── event-bus.impl.ts         # SimpleEventBus 实现
+│   ├── nodus-shell.ts            # NodusShell 主类
+│   └── nodus-shell.test.ts
+│
+├── context/                      # 上下文管理
+│   ├── context-manager.ts
+│   ├── context-manager.impl.ts
+│   └── context-manager.test.ts
+│
+├── store/                        # 数据持久化（SQLite）
+│   ├── knowledge-store.ts
+│   ├── knowledge-store.impl.ts
+│   └── knowledge-store.test.ts
+│
+├── code-intel/                   # 语义索引核心
+│   ├── code-intelligence.ts
+│   ├── code-intelligence.impl.ts
+│   ├── code-intelligence.test.ts           # 当前为空（导入 tree-sitter 即报错）
+│   ├── code-intelligence.integration.test.ts  # 当前为空
+│   ├── language-parser.ts
+│   └── parsers/
+│       ├── typescript-parser.ts
+│       ├── python-parser.ts
+│       └── utils.ts
+│
+├── env-mgr/                      # 环境检测与安装
+│   ├── environment-manager.ts
+│   ├── environment-manager.impl.ts
+│   └── environment-manager.test.ts
+│
+├── git-intel/                    # Git 操作封装
+│   ├── git-intelligence.ts
+│   ├── git-intelligence.impl.ts
+│   └── git-intelligence.test.ts
+│
+├── file-watcher/                 # 文件监听（增量索引）
+│   ├── file-watcher.ts
+│   ├── file-watcher.impl.ts
+│   └── file-watcher.test.ts
+│
+├── intent/                       # 意图解析（关键词 + 模式匹配）
+│   ├── intent-engine.ts
+│   ├── intent-engine.impl.ts
+│   └── intent-engine.test.ts
+│
+├── ui/                           # 结果格式化（终端渲染器）
+│   ├── ui-renderer.ts
+│   ├── terminal-renderer.ts
+│   └── terminal-renderer.test.ts
+│
+└── voice/                        # 语音管线（当前为 stub）
+    ├── voice-pipeline.ts
+    └── voice-pipeline.impl.ts
+```
+
+### 3.3 架构分层
+
+实际代码遵循自上而下依赖的分层架构：
+
+```
+人机接口层
+  └── 文本输入 / TerminalRenderer / VoicePipeline（stub）
+
+意图编排层
+  └── IntentEngine / ContextManager
+
+能力层
+  ├── CodeIntelligence（tree-sitter 解析）
+  ├── EnvironmentManager（运行时/依赖）
+  ├── GitIntelligence（git CLI 封装）
+  └── FileWatcher（fs.watch + 事件总线）
+
+数据层
+  └── SqliteKnowledgeStore（SQLite 持久化）
+```
+
+模块通信方式：
+
+1. **直接调用**（首选）：上层模块导入下层模块的接口并调用方法。
+2. **事件总线**（松耦合）：通过 `SimpleEventBus` 收发事件，主要用于文件变更、索引状态、环境状态等。
+3. **禁止**：直接访问其他模块内部数据结构或实现类。
+
+### 3.4 各模块实现状态（实际）
+
+| 模块 | 接口 | 实现 | 单元测试 | 备注 |
+|------|------|------|----------|------|
+| ContextManager | ✅ | ✅ | ✅ 7 个 | 完整可用 |
+| KnowledgeStore | ✅ | ✅ | ⚠️ 15 个失败 | 因 better-sqlite3 二进制问题 |
+| EventBus | ✅ | ✅ | ✅ 5 个 | 完整可用 |
+| IntentEngine | ✅ | ✅ | ✅ 10 个 | 关键词模式匹配 |
+| TerminalRenderer | ✅ | ✅ | ✅ 6 个 | 完整可用 |
+| EnvironmentManager | ✅ | ✅ | ✅ 8 个 | 会真实执行 `npm install` 等 |
+| GitIntelligence | ✅ | ✅ | ✅ 5 个 | 依赖本地 git CLI |
+| FileWatcher | ✅ | ✅ | ✅ 3 个 | Node.js `fs.watch` |
+| CodeIntelligence | ✅ | ✅ | ⚠️ 0 个运行 | 因 tree-sitter 二进制问题 |
+| VoicePipeline | ✅ | ✅ | 无 | 仅麦克风检测 + TTS stub |
+| NodusShell | ✅ | ✅ | ⚠️ 0 个运行 | 因 tree-sitter 加载失败 |
 
 ---
 
-## Development Workflow
-
-### TDD (Test-Driven Development)
-
-Nodus follows **Red-Green-Refactor**. This is mandatory — enforced in code review.
-
-```
-RED → GREEN → REFACTOR → (repeat)
-```
-
-1. **RED**: Write a failing test that defines the desired behavior
-2. **GREEN**: Write the minimal code to make the test pass
-3. **REFACTOR**: Improve the code structure while keeping tests green
-
-### Test Pyramid
-
-- **Unit tests** (~65%, ~150 expected): Module-internal logic. Fast (<10s for full suite).
-- **Integration tests** (~25%, ~40 expected): Cross-module boundaries, EventBus, KnowledgeStore.
-- **E2E tests** (~10%, ~10 expected): Full user journeys from intent to result card.
-- **Performance tests** (~5): Key path latency (index, query, env setup).
-- **Stress tests** (~3): Large projects (100K+ lines).
-
-Tests live alongside source: `src/<module>/<name>.test.ts` for unit, `src/<module>/<name>.integration.test.ts` for integration.
-
-### Quality Gates
-
-**Pre-commit**:
-- All unit tests pass
-- `tsc --noEmit` (no type errors)
-- Relevant integration tests pass
-
-**Pre-merge (PR)**:
-- Full CI suite passes (unit + integration + E2E)
-- Code coverage ≥ 85% (new code ≥ 90%)
-- No performance regression on critical paths (<10% variance)
-
-**Pre-release**:
-- All 10 E2E user journeys pass
-- 100K-line project indexing and query performance meets targets
-- Author dogfoods for one continuous week without blockers
-
-### Commands
+## 4. 构建、运行与测试命令
 
 ```bash
-npm install          # Install dependencies
-npm test             # Run all tests (vitest run)
-npm run test:watch   # Watch mode for TDD
-npm run test:coverage # With coverage report
-npm run typecheck    # TypeScript type checking (tsc --noEmit)
-npm run dev          # Development mode (tsx src/main.ts)
+# 安装依赖
+npm install
+
+# 运行全部测试
+npm test
+
+# 监听模式（TDD）
+npm run test:watch
+
+# 测试覆盖率
+npm run test:coverage
+
+# TypeScript 类型检查
+npm run typecheck
+
+# 开发模式启动
+npm run dev
+
+# 启动并打开指定项目
+npm run dev /path/to/project
 ```
+
+### 4.1 当前测试结果的真实情况
+
+最后一次运行结果：
+
+- **测试文件**：11 个
+- **总测试数**：59 个
+- **通过**：44 个
+- **失败**：15 个（全部来自 `src/store/knowledge-store.test.ts`，根因是 `better-sqlite3` 原生二进制加载失败）
+- **无法运行的套件**：`code-intelligence.test.ts`、`code-intelligence.integration.test.ts`、`nodus-shell.test.ts`（根因是 `tree-sitter` 原生二进制加载失败）
+
+> 注意：`readme.md` 中“71 个测试，全绿”的描述与当前实际状态不符；请以上述实测结果为准。
 
 ---
 
-## Coding Conventions
+## 5. 代码规范与约定
 
-### Module Pattern
+### 5.1 模块文件模式
 
-Every module follows this structure:
+每个模块尽量保持统一结构：
 
 ```
 src/<module>/
-├── <module>.ts              # Public interface (TypeScript interface)
-├── <module>.impl.ts         # Default implementation
-├── <module>.test.ts         # Unit tests
-└── <module>.integration.test.ts  # Integration tests (if applicable)
+├── <module>.ts                 # 接口定义
+├── <module>.impl.ts            # 默认实现
+├── <module>.test.ts            # 单元测试
+└── <module>.integration.test.ts  # 集成测试（如有）
 ```
 
-### Naming
+### 5.2 命名规范
 
-- **Interfaces**: PascalCase, no `I` prefix (`ContextManager`, `KnowledgeStore`)
-- **Implementations**: `Default` prefix or technology-specific (`DefaultContextManager`, `SqliteKnowledgeStore`)
-- **Types**: PascalCase, in `src/common/types.ts`
-- **Files**: kebab-case (`context-manager.ts`, `knowledge-store.impl.ts`)
-- **Test files**: match the implementation file with `.test.ts` suffix
+- **接口**：PascalCase，**不加 `I` 前缀**，例如 `ContextManager`、`KnowledgeStore`。
+- **实现类**：`Default` / 技术前缀 / `Impl` 后缀，例如 `DefaultContextManager`、`SqliteKnowledgeStore`、`CodeIntelligenceImpl`。
+- **类型**：PascalCase，统一放在 `src/common/types.ts`。
+- **文件**：kebab-case，例如 `context-manager.ts`、`knowledge-store.impl.ts`。
+- **测试文件**：与实现文件同名加 `.test.ts`。
 
-### TypeScript Rules
+### 5.3 TypeScript 规范
 
-- Strict mode enabled (`tsconfig.json`: `"strict": true`)
-- `verbatimModuleSyntax`: true — use `import type` for type-only imports
-- ESM only (`"type": "module"`, NodeNext resolution)
-- No `any` — use `unknown` and narrow with type guards
-- Exported interfaces must have JSDoc comments describing purpose
+- 严格模式已开启（`"strict": true`）。
+- `verbatimModuleSyntax: true`：类型导入必须写 `import type { ... }`。
+- ESM + NodeNext 解析。
+- 不允许隐式 `any`；优先用 `unknown` 并收窄。
+- 导出的接口需带 JSDoc 注释。
+- 源码与注释主要使用**中文**。
 
-### Module Communication
+### 5.4 注释与文档语言
 
-1. **Direct calls** (preferred): Module A imports Module B's interface and calls methods directly. This is the fast path for query operations.
-2. **Event bus** (for loose coupling): Module A emits an event, Module B subscribes. Used for: index status changes, file system events, context changes, environment state transitions.
-3. **Never**: Direct access to another module's internal data structures or implementation classes.
-
----
-
-## MVP Feature Scope
-
-### Included (Must Have)
-
-1. **Environment Autopilot** — auto-detect language, install runtime + dependencies. Supports JS/TS/Python.
-2. **Semantic Code Index** — symbol extraction, reference resolution, call graph, change history. Incremental updates on file change.
-3. **Six Query Types** — find definition, find references, call graph, impact analysis, change history, symbol overview.
-4. **Voice Input** — wake word ("Nodus" / "结绳") → STT → intent parsing.
-5. **Text Input** — Ctrl+Space for silent mode text queries.
-6. **Result Cards** — call graph card, reference list card, change history card, env status card. Cards are ephemeral (TTL or manual dismiss).
-7. **Code Viewer** — syntax-highlighted code display with click-to-navigate from cards.
-
-### Explicitly Excluded (v2+)
-
-- AI code generation / refactoring
-- Cross-domain debugging (logs + code correlation)
-- Auto-labeling training flywheel
-- Multi-device sync
-- Languages beyond JS/TS/Python
-- Team collaboration features
-- Proactive computation / notifications
-- External service environments (DB, Redis, etc.)
-
-### MVP Success Criteria
-
-1. Environment ready in ≤ 2 minutes for standard projects, zero manual commands
-2. Symbol index coverage ≥ 95%, call graph accuracy ≥ 95% (for projects ≤ 100K lines)
-3. Intent-to-card latency ≤ 3 seconds (with index pre-built)
-4. Author dogfoods Nodus for daily development for one continuous week
+- 代码注释、JSDoc、`readme.md` 及 `docs/` 下文档主要使用**中文**。
+- 接口文档（`ArchitecturalDesignPhase/04-API-Reference.md`）使用中文撰写但采用 Rust trait 风格描述。
+- 类型、变量、函数名等技术标识符保持英文。
 
 ---
 
-## Key Architecture Decisions (ADRs)
+## 6. 测试策略
 
-| ADR | Decision | Rationale |
-|-----|----------|-----------|
-| ADR-001 | Modular monolith, not microservices | MVP team size, single machine, fast iteration |
-| ADR-002 | Local-first, zero cloud dependency | Code privacy, offline capability, zero network latency |
-| ADR-003 | Synchronous intent parsing, async indexing | User queries need instant response; indexing is background work |
-| ADR-004 | SQLite + in-memory index (dual storage) | Hot-path queries in memory (<1ms), SQLite for persistence and recovery |
-| ADR-005 | tree-sitter for code parsing | Language-agnostic, incremental parsing, mature Rust/Node bindings |
-| ADR-006 | Interface-as-contract | Every module exposes a TypeScript interface; internals can be freely refactored |
+### 6.1 测试框架
 
----
+使用 **Vitest**，配置：
 
-## Implementation Status
+- `globals: true`：全局 `describe` / `it` / `expect`。
+- `environment: 'node'`。
+- 匹配 `src/**/*.test.ts`。
 
-### Complete
-- `src/common/types.ts` — all core data types
-- `src/context/` — ContextManager interface + implementation + 7 unit tests
-- `src/store/` — KnowledgeStore interface + SQLite implementation + 18 unit tests
+### 6.2 测试文件约定
 
-### In Progress
-- `src/code-intel/` — CodeIntelligence interface defined, LanguageParser interface defined, TypeScript and Python parser implementations exist, tests pending/partial
+- 单元测试：`src/<module>/<name>.test.ts`
+- 集成测试：`src/<module>/<name>.integration.test.ts`
+- 测试用例命名通常带 `TC-UT-XXX-NNN` 编号，例如 `TC-UT-CM-001: should have correct initial state`。
 
-### Not Started
-- `src/shell/` — Nodus Shell (app entry point, module registry, event bus)
-- `src/intent/` — Intent Engine (NLU, entity extraction, classification)
-- `src/env-mgr/` — Environment Manager (runtime detection, installation)
-- `src/file-watcher/` — File Watcher (FS event monitoring)
-- `src/git-intel/` — Git Intelligence (log, diff, blame)
-- `src/voice/` — Voice Pipeline (wake word, STT, TTS)
-- `src/ui/` — UI Renderer (cards, code viewer, breath light)
+### 6.3 测试隔离
 
-### Development Order (by dependency)
+- 需要文件系统的测试使用 `os.tmpdir()` 创建临时目录，并在 `afterEach` 中清理。
+- `KnowledgeStore` 测试使用 `:memory:` 内存数据库。
+- `GitIntelligence` 测试会在临时目录 `git init` 真实仓库。
 
-```
-Phase 1 (Infrastructure, no deps):  KnowledgeStore ✅ → ContextManager ✅ → EventBus
-Phase 2 (Capabilities):            FileWatcher → GitIntel → EnvManager → CodeIntelligence
-Phase 3 (Orchestration):           IntentEngine → VoicePipeline
-Phase 4 (Integration):             UIRenderer → NodusShell
-```
+### 6.4 当前测试缺口
+
+- `code-intelligence.test.ts` 与 `code-intelligence.integration.test.ts` 当前为空文件（只有导入，没有测试体），原因是 tree-sitter 原生模块加载失败。
+- 语音管线没有测试。
 
 ---
 
-## Important Notes
+## 7. 安全与注意事项
 
-- Nodus is NOT a code editor replacement. It coexists with VSCode. Nodus is the OS-layer information integrator.
-- The project is in early MVP development. Focus on getting the two foundation stones (semantic index + environment autopilot) working end-to-end before adding anything else.
-- All code must work fully offline. No cloud service dependencies in MVP.
-- The `RequirementAnalysisPhase/`, `ArchitecturalDesignPhase/`, and `TestDesignPhase/` directories contain the canonical design documents. When in doubt about behavior, consult these before the source code.
-- Language support is architected to be plugin-based. Adding a new language should require only a new parser implementing the `LanguageParser` interface — no changes to the core indexing engine.
+### 7.1 自动执行外部命令
+
+`EnvironmentManagerImpl` 会调用 `execSync` 执行真实的外部命令：
+
+- `node --version`、`python3 --version` 等运行时检测。
+- `npm install`、`yarn install`、`pnpm install`、`pip install -r requirements.txt`、`poetry install`、`uv sync` 等依赖安装。
+- 这些命令在项目根目录下运行，**会修改目标项目的文件系统**（创建 `node_modules` 等）。
+
+### 7.2 Git 操作
+
+`GitIntelligenceImpl` 通过 `execSync('git ...')` 执行 git 命令，依赖项目目录已是 git 仓库。
+
+### 7.3 数据目录
+
+`src/main.ts` 默认在 `~/.nodus/` 下创建 SQLite 数据库 `nodus.db`，并在 `intent-engine.impl.ts` 中向 `~/.nodus/feedback.jsonl` 追加反馈日志。
+
+### 7.4 语音管线
+
+`SystemVoicePipeline` 使用系统命令播放 TTS：
+
+- macOS: `say`
+- Linux: `espeak`
+- Windows: PowerShell `System.Speech.Synthesis`
+
+### 7.5 文件监听
+
+`FileWatcherImpl` 使用 Node.js `fs.watch` 递归监听项目目录；变更会触发 `codeIntel.indexFile` 或数据库清理操作。
+
+### 7.6 代码安全
+
+- 不要在生产环境直接运行未知项目的 `npm install`。
+- 当前实现没有沙箱；解析器会读取项目内任意源码文件。
+
+---
+
+## 8. 已知问题与限制
+
+1. **原生二进制兼容性**：`better-sqlite3` 与 `tree-sitter` 的预编译二进制在某些平台上会加载失败，导致存储与代码解析相关功能不可用。需要按平台重新编译或调整依赖。
+2. **测试状态**：当前无法达到 `readme.md` 中声称的“71 个测试全绿”。
+3. **语音交互**：实时唤醒词 + STT 尚未实现，仅保留接口与基础 TTS stub。
+4. **UI**：目前只有终端文本渲染器，没有图形界面。
+5. **代码解析精度**：tree-sitter 解析器已能抽取符号与基本引用，但跨文件引用解析、类型引用、继承关系等仍有大量细节待完善。
+6. **环境自动安装**：`installRuntime` 实际不会主动下载安装 Node/Python，而是检测现有运行时并打印提示；真正的全自动安装尚未实现。
+
+---
+
+## 9. 设计原则（来自项目文档）
+
+六个核心原则（非协商）：
+
+1. **意图驱动，而非指令驱动** —— 用户说“要什么”，系统决定“怎么做”。
+2. **语音优先，界面为辅** —— 80% 操作应闭眼完成。
+3. **系统适应人** —— 零学习成本，不同角色得到不同响应。
+4. **全局上下文，无边界调度** —— 数据不在 App 孤岛里。
+5. **主动计算，人授权限** —— 系统可预判，但不可越权。
+6. **认知卸载，务实降级** —— 自动一切可自动的，做不到的诚实说明。
+
+冲突解决顺序：**人授权限 > 主动计算 > 务实降级 > 体验一致性 > 语音优先 > 视觉呈现 > 系统适应人 > 功能完整度**。
+
+---
+
+## 10. 给 AI Agent 的操作建议
+
+- 修改某个模块前，先阅读其 `<module>.ts` 接口定义，再看 `.impl.ts` 实现。
+- 保持“接口 + 实现 + 测试”三件套结构。
+- 新类型优先放到 `src/common/types.ts`。
+- 测试用例建议沿用 `TC-UT-XXX-NNN` 编号风格。
+- 涉及 `execSync` 或外部命令的改动要特别谨慎，避免破坏用户环境。
+- 若你的工作涉及 `tree-sitter` 或 `better-sqlite3` 报错，先确认本地原生二进制可加载再继续。
