@@ -21,6 +21,7 @@ import type {
 import type { GitIntelligence, DiffData } from '../git-intel/git-intelligence.js';
 import { TypeScriptParser } from './parsers/typescript-parser.js';
 import { PythonParser } from './parsers/python-parser.js';
+import { DefaultCodeAnalytics } from './code-analytics.impl.js';
 
 /** 默认排除的文件模式 */
 const EXCLUDE_PATTERNS = [
@@ -479,8 +480,66 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
         const records = await this.changeHistory(scope, entities.timeRange);
         return { kind: 'change_history', records };
       }
+      case 'list_symbols': {
+        const syms = await this.analytics().listSymbols(entities.filter ?? {});
+        return { kind: 'symbol_list', symbols: syms };
+      }
+      case 'stats': {
+        const symbols = this.store.symbolsFindAll();
+        const refs = this.store.refsFindAll();
+        const files = new Set(symbols.map(s => s.location.file_path));
+        return {
+          kind: 'stats_report',
+          stats: {
+            totalSymbols: symbols.length,
+            totalReferences: refs.length,
+            exportedSymbols: symbols.filter(s => s.is_exported).length,
+            filesIndexed: files.size,
+          },
+        };
+      }
+      case 'analytics': {
+        return this.handleAnalyticsQuery(entities.subType);
+      }
       default:
         return { kind: 'symbol_list', symbols: [] };
+    }
+  }
+
+  private analytics(): DefaultCodeAnalytics {
+    return new DefaultCodeAnalytics(this.store, this.projectRoot ?? process.cwd());
+  }
+
+  private async handleAnalyticsQuery(subType: string | undefined): Promise<QueryResult> {
+    const analytics = this.analytics();
+    const limit = 10;
+
+    switch (subType) {
+      case 'most_impactful':
+        return { kind: 'symbol_ranking', title: '影响范围最大的符号', metrics: await analytics.mostImpactfulSymbols(limit) };
+      case 'unused_exports':
+        return { kind: 'symbol_list', symbols: await analytics.unusedExports(limit) };
+      case 'coupled_modules':
+        return { kind: 'module_coupling', couplings: await analytics.mostCoupledModules(limit) };
+      case 'longest_chains':
+        return { kind: 'call_chain', chains: await analytics.longestCallChains(limit) };
+      case 'entry_points':
+        return { kind: 'symbol_list', symbols: await analytics.findEntryPoints() };
+      case 'todos':
+        return { kind: 'todo_list', comments: await analytics.listTodoComments() };
+      case 'complexity': {
+        const scores = await analytics.complexityScores(limit);
+        return {
+          kind: 'symbol_ranking',
+          title: '复杂度最高的符号',
+          metrics: scores.map(s => ({ symbol: s.symbol, metric: s.score, detail: s.factors.join(', ') })),
+        };
+      }
+      case 'most_changed':
+        return { kind: 'change_heat', files: await analytics.mostChangedFiles(undefined, limit) };
+      case 'most_called':
+      default:
+        return { kind: 'symbol_ranking', title: '调用次数最多的函数', metrics: await analytics.mostCalledFunctions(limit) };
     }
   }
 

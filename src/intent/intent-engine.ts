@@ -19,6 +19,15 @@ export interface IntentEntity {
   moduleName?: string;
   timeRange?: { from: Date; to: Date };
   author?: string;
+  /** analytics / stats 子类型，用于区分具体统计/分析动作 */
+  subType?: string;
+  /** list_symbols 的过滤条件 */
+  filter?: {
+    kind?: import('../common/types.js').SymbolKind;
+    exportedOnly?: boolean;
+    filePath?: string;
+    modulePath?: string;
+  };
 }
 
 export interface QueryIntent {

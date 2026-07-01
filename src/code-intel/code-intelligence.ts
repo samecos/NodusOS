@@ -9,6 +9,8 @@ import type {
   IndexStatus, QueryHistoryEntry,
   ChangeScope, IntentType, RiskLevel,
 } from '../common/types.js';
+import type { SymbolMetric, ModuleCoupling, CallChain, TodoComment } from './code-analytics.js';
+import type { IntentEntity } from '../intent/intent-engine.js';
 
 // ---- 报告类型 ----
 
@@ -51,13 +53,7 @@ export interface QueryIntent {
   rawText: string;
   intentType: IntentType;
   confidence: number;
-  entities: {
-    symbolName?: string;
-    filePath?: string;
-    moduleName?: string;
-    timeRange?: { from: Date; to: Date };
-    author?: string;
-  };
+  entities: IntentEntity;
   context?: {
     activeFile?: string;
     cursorSymbol?: string;
@@ -68,13 +64,26 @@ export interface QueryIntent {
 
 // ---- QueryResult ----
 
+export interface StatsReport {
+  totalSymbols: number;
+  totalReferences: number;
+  exportedSymbols: number;
+  filesIndexed: number;
+}
+
 export type QueryResult =
   | { kind: 'symbol_list'; symbols: Symbol[] }
   | { kind: 'reference_list'; references: Reference[] }
   | { kind: 'call_graph'; graph: CallGraph }
   | { kind: 'impact_report'; report: ImpactReport }
   | { kind: 'change_history'; records: ChangeRecord[] }
-  | { kind: 'symbol_overview'; symbols: Symbol[] };
+  | { kind: 'symbol_overview'; symbols: Symbol[] }
+  | { kind: 'symbol_ranking'; title: string; metrics: SymbolMetric[] }
+  | { kind: 'module_coupling'; couplings: ModuleCoupling[] }
+  | { kind: 'call_chain'; chains: CallChain[] }
+  | { kind: 'todo_list'; comments: TodoComment[] }
+  | { kind: 'stats_report'; stats: StatsReport }
+  | { kind: 'change_heat'; files: { filePath: string; changeCount: number }[] };
 
 // ---- Main interface ----
 

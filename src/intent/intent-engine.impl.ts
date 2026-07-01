@@ -50,6 +50,26 @@ export class PatternIntentEngine implements IntentEngine {
     { text: 'xxx里有哪些函数', intentType: 'symbol_overview', entityHint: 'file' },
     { text: 'xxx里有哪些符号', intentType: 'symbol_overview', entityHint: 'file' },
     { text: 'list symbols in xxx', intentType: 'symbol_overview', entityHint: 'file' },
+    // list_symbols
+    { text: '列出所有函数', intentType: 'list_symbols' },
+    { text: '列出所有导出符号', intentType: 'list_symbols' },
+    { text: 'list all functions', intentType: 'list_symbols' },
+    { text: 'show all exports in xxx', intentType: 'list_symbols', entityHint: 'file' },
+    // stats
+    { text: '代码统计', intentType: 'stats' },
+    { text: '项目统计', intentType: 'stats' },
+    { text: 'statistics', intentType: 'stats' },
+    { text: 'how many functions are there', intentType: 'stats' },
+    // analytics
+    { text: '调用次数最多的函数', intentType: 'analytics' },
+    { text: '影响范围最大的函数', intentType: 'analytics' },
+    { text: '哪些导出没被使用', intentType: 'analytics' },
+    { text: '模块耦合度', intentType: 'analytics' },
+    { text: '最长调用链', intentType: 'analytics' },
+    { text: '入口函数', intentType: 'analytics' },
+    { text: 'TODO 列表', intentType: 'analytics' },
+    { text: '复杂度最高的函数', intentType: 'analytics' },
+    { text: '变更热点文件', intentType: 'analytics' },
   ];
 
   parse(input: IntentInput, context: Context): QueryIntent | IntentError {
@@ -186,6 +206,45 @@ export class PatternIntentEngine implements IntentEngine {
           return { moduleName: moduleName ?? undefined, timeRange };
         },
       },
+      // 列表查询（先于 symbol_overview，避免“列出所有导出函数”被误判为概览）
+      {
+        patterns: [
+          /(?:列出|list|show)\s*(?:所有\s*)?(?:导出\s*|exported\s*)?(?:所有\s*)?(?:的\s*)?(?:符号|函数|类|接口|方法|symbols|functions|classes|interfaces|methods)?/i,
+          /(?:哪些|what)\s+(?:符号|函数|类|接口|symbols|functions|classes|interfaces)\s*(?:在|in)\s*(.+)/i,
+        ],
+        intentType: 'list_symbols',
+        extractEntities: (_, text, ctx) => ({
+          filter: this.extractSymbolFilter(text, ctx),
+        }),
+      },
+      // 统计
+      {
+        patterns: [
+          /(?:代码|项目|代码库)?.*?\s*(?:统计|statistics|stats|概览|overview)/i,
+          /(?:统计|statistics|stats|概览|overview).*?(?:代码|项目|代码库)?/i,
+          /(?:有多少|how many)\s+(?:个\s+)?(.+?)(?:符号|函数|类|文件|symbols|functions|classes|files)?/i,
+        ],
+        intentType: 'stats',
+        extractEntities: () => ({}),
+      },
+      // 分析
+      {
+        patterns: [
+          /(?:调用次数最多|最热|most called|top called)\s*(?:的\s*)?(?:函数|方法|functions|methods)?/i,
+          /(?:影响范围最大|most impactful|most impactful symbols?)/i,
+          /(?:未使用|没用|死代码|unused|dead)\s*(?:的\s*)?(?:导出|exports?)?/i,
+          /(?:模块耦合|耦合度|most coupled|module coupling)/i,
+          /(?:最长调用链|longest call chain)/i,
+          /(?:入口|entry points?|entry functions?)/i,
+          /(?:TODO|FIXME|HACK|待办|备忘)\s*(?:列表|list|注释|comments)?/i,
+          /(?:复杂度最高|最复杂|most complex|complexity)/i,
+          /(?:变更热点|最热文件|most changed|change heat|changed files)/i,
+        ],
+        intentType: 'analytics',
+        extractEntities: (_, text) => ({
+          subType: this.extractAnalyticsSubType(text),
+        }),
+      },
       // 符号概览
       {
         patterns: [
@@ -204,9 +263,11 @@ export class PatternIntentEngine implements IntentEngine {
         const match = pattern.exec(lower);
         if (match) {
           const entities = rule.extractEntities(match, rawText, ctx);
-          // 如果没有足够的实体信息，降低置信度
-          const hasEntity = entities.symbolName || entities.filePath || entities.moduleName;
-          const confidence = hasEntity ? 0.92 : 0.65;
+          // 聚合类意图（list_symbols / stats / analytics）模式本身足够明确，直接给高置信度
+          const aggregateIntent = rule.intentType === 'list_symbols' || rule.intentType === 'stats' || rule.intentType === 'analytics';
+          const hasEntity = entities.symbolName || entities.filePath || entities.moduleName ||
+                            entities.subType || (entities.filter && Object.keys(entities.filter).length > 0);
+          const confidence = aggregateIntent || hasEntity ? 0.92 : 0.65;
 
           return this.makeIntent(rawText, rule.intentType, entities, confidence);
         }
@@ -353,6 +414,40 @@ export class PatternIntentEngine implements IntentEngine {
       from.setHours(0, 0, 0, 0);
       return { from, to };
     }
+    return undefined;
+  }
+
+  private extractSymbolFilter(text: string, ctx: Context): NonNullable<IntentEntity['filter']> {
+    const filter: NonNullable<IntentEntity['filter']> = {};
+    const lower = text.toLowerCase();
+
+    if (/函数|functions?/.test(lower)) filter.kind = 'function';
+    else if (/类|classes?/.test(lower)) filter.kind = 'class';
+    else if (/接口|interfaces?/.test(lower)) filter.kind = 'interface';
+    else if (/方法|methods?/.test(lower)) filter.kind = 'method';
+
+    if (/导出|exported|exports?/.test(lower)) filter.exportedOnly = true;
+
+    const filePath = this.extractFilePath(text) ?? ctx.active_file ?? undefined;
+    if (filePath) filter.filePath = filePath;
+
+    const moduleMatch = text.match(/(?:src\/|app\/|lib\/)([a-zA-Z_][\w/]+)/);
+    if (moduleMatch) filter.modulePath = moduleMatch[0];
+
+    return filter;
+  }
+
+  private extractAnalyticsSubType(text: string): string | undefined {
+    const lower = text.toLowerCase();
+    if (/调用次数最多|最热|most called|top called/.test(lower)) return 'most_called';
+    if (/影响范围最大|most impactful/.test(lower)) return 'most_impactful';
+    if (/未使用|没用|死代码|unused|dead/.test(lower)) return 'unused_exports';
+    if (/模块耦合|耦合度|most coupled|module coupling/.test(lower)) return 'coupled_modules';
+    if (/最长调用链|longest call chain/.test(lower)) return 'longest_chains';
+    if (/入口|entry points?|entry functions?/.test(lower)) return 'entry_points';
+    if (/todo|fixme|hack|待办|备忘/.test(lower)) return 'todos';
+    if (/复杂度最高|最复杂|most complex|complexity/.test(lower)) return 'complexity';
+    if (/变更热点|最热文件|most changed|change heat|changed files/.test(lower)) return 'most_changed';
     return undefined;
   }
 }

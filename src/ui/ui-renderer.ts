@@ -15,6 +15,12 @@ export type CardKind =
   | 'impact_report'
   | 'change_history'
   | 'symbol_overview'
+  | 'symbol_ranking'
+  | 'module_coupling'
+  | 'call_chain'
+  | 'todo_list'
+  | 'stats_report'
+  | 'change_heat'
   | 'ambiguity'
   | 'env_status'
   | 'notification';

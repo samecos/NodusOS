@@ -122,4 +122,113 @@ describe('TerminalRenderer', () => {
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
+
+  // TC-UT-UI-006: 排行榜渲染
+  it('TC-UT-UI-006: should render symbol ranking', () => {
+    const out = renderer.render({
+      kind: 'symbol_ranking',
+      title: 'Most Called Functions',
+      metrics: [
+        {
+          symbol: {
+            id: 'sym_a', name: 'processOrder', kind: 'function', language: 'typescript',
+            location: { file_path: 'src/order.ts', line_start: 10, line_end: 20, col_start: 0, col_end: 1 },
+            is_exported: true,
+          },
+          metric: 42,
+          detail: 'calls',
+        },
+      ],
+    });
+    expect(out).toContain('Most Called Functions');
+    expect(out).toContain('processOrder');
+    expect(out).toContain('42');
+  });
+
+  // TC-UT-UI-007: 模块耦合度表格渲染
+  it('TC-UT-UI-007: should render module coupling table', () => {
+    const out = renderer.render({
+      kind: 'module_coupling',
+      couplings: [
+        { moduleA: 'src/a.ts', moduleB: 'src/b.ts', referenceCount: 12 },
+        { moduleA: 'src/c.ts', moduleB: 'src/d.ts', referenceCount: 5 },
+      ],
+    });
+    expect(out).toContain('src/a.ts');
+    expect(out).toContain('src/b.ts');
+    expect(out).toContain('12');
+    expect(out).toContain('src/c.ts');
+    expect(out).toContain('5');
+  });
+
+  // TC-UT-UI-008: 调用链渲染
+  it('TC-UT-UI-008: should render call chains', () => {
+    const out = renderer.render({
+      kind: 'call_chain',
+      chains: [
+        {
+          chain: [
+            { id: 's1', name: 'a', kind: 'function', language: 'typescript', location: { file_path: 'src/a.ts', line_start: 1, line_end: 1, col_start: 0, col_end: 1 }, is_exported: true },
+            { id: 's2', name: 'b', kind: 'function', language: 'typescript', location: { file_path: 'src/b.ts', line_start: 1, line_end: 1, col_start: 0, col_end: 1 }, is_exported: true },
+          ],
+          depth: 2,
+        },
+      ],
+    });
+    expect(out).toContain('a');
+    expect(out).toContain('b');
+    expect(out).toContain('depth: 2');
+  });
+
+  // TC-UT-UI-009: TODO 列表渲染
+  it('TC-UT-UI-009: should render TODO list', () => {
+    const out = renderer.render({
+      kind: 'todo_list',
+      comments: [
+        { filePath: 'src/a.ts', line: 10, text: 'fix edge case', kind: 'TODO' },
+        { filePath: 'src/b.ts', line: 20, text: 'refactor', kind: 'FIXME' },
+      ],
+    });
+    expect(out).toContain('TODO');
+    expect(out).toContain('FIXME');
+    expect(out).toContain('fix edge case');
+    expect(out).toContain('src/a.ts:10');
+  });
+
+  // TC-UT-UI-010: 卡片识别新 analytics 类型
+  it('TC-UT-UI-010: should infer card kind for analytics results', () => {
+    const card = renderer.createCard('c3', 'Ranking', {
+      kind: 'symbol_ranking',
+      title: 'Top Functions',
+      metrics: [],
+    });
+    expect(card.kind).toBe('symbol_ranking');
+  });
+
+  // TC-UT-UI-011: 统计报告渲染
+  it('TC-UT-UI-011: should render stats report', () => {
+    const out = renderer.render({
+      kind: 'stats_report',
+      stats: { totalSymbols: 100, totalReferences: 250, exportedSymbols: 30, filesIndexed: 12 },
+    });
+    expect(out).toContain('100');
+    expect(out).toContain('250');
+    expect(out).toContain('30');
+    expect(out).toContain('12');
+  });
+
+  // TC-UT-UI-012: 变更热点渲染
+  it('TC-UT-UI-012: should render change heat', () => {
+    const out = renderer.render({
+      kind: 'change_heat',
+      files: [
+        { filePath: 'src/hot.ts', changeCount: 15 },
+        { filePath: 'src/cold.ts', changeCount: 2 },
+      ],
+    });
+    expect(out).toContain('src/hot.ts');
+    expect(out).toContain('15');
+    expect(out).toContain('src/cold.ts');
+    expect(out).toContain('2');
+  });
 });

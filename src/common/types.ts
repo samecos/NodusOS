@@ -156,7 +156,10 @@ export type IntentType =
   | 'call_graph'
   | 'impact_analysis'
   | 'change_history'
-  | 'symbol_overview';
+  | 'symbol_overview'
+  | 'list_symbols'
+  | 'stats'
+  | 'analytics';
 
 /** 变更范围 */
 export type ChangeScope =

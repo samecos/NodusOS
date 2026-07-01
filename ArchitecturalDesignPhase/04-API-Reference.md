@@ -1,6 +1,6 @@
 # Nodus API 接口文档 (API Reference)
 
-> 版本: v1.0 | 日期: 2026-05-04
+> 版本: v1.0 | 日期: 2026-07-01
 
 ---
 
@@ -184,6 +184,27 @@ match intent_engine.parse(input, &context)? {
         ui.show_card(Card::ambiguity(candidates));
     }
     Err(e) => ui.notify_error(e),
+}
+```
+
+**QueryIntent 结构**：
+
+```rust
+struct QueryIntent {
+    raw_text: String,
+    intent_type: IntentType,  // find_definition | find_references | call_graph | impact_analysis | change_history | symbol_overview | list_symbols | stats | analytics
+    confidence: f32,
+    entities: IntentEntity,
+}
+
+struct IntentEntity {
+    symbol_name: Option<String>,
+    file_path: Option<String>,
+    module_name: Option<String>,
+    time_range: Option<TimeRange>,
+    author: Option<String>,
+    sub_type: Option<String>,   // analytics 子类型，如 "most_called" / "unused_exports" / "todos"
+    filter: Option<SymbolListFilter>, // list_symbols 过滤条件
 }
 ```
 
@@ -467,6 +488,12 @@ enum QueryResult {
     ImpactReport(ImpactReport),
     ChangeHistory(Vec<ChangeRecord>),
     SymbolOverview(Vec<Symbol>),
+    SymbolRanking { title: String, metrics: Vec<SymbolMetric> },
+    ModuleCoupling(Vec<ModuleCoupling>),
+    CallChain(Vec<CallChain>),
+    TodoList(Vec<TodoComment>),
+    StatsReport(StatsReport),
+    ChangeHeat(Vec<(String, u32)>),
 }
 ```
 
@@ -493,6 +520,74 @@ async fn change_history(
 | `UnsupportedLanguage { language }` | 不支持的语言 | "暂不支持该语言" |
 | `QueryError { reason }` | 查询执行错误 | 具体原因 |
 | `ProjectNotIndexed { path }` | 项目未索引 | "请先打开项目" |
+
+## 5.11 Code Analytics
+
+`CodeAnalytics` 提供代码库级的聚合统计与分析能力，由 `CodeIntelligence.query` 在 `list_symbols`、`stats`、`analytics` 三类意图下调用。
+
+```rust
+trait CodeAnalytics {
+    async fn list_symbols(&self, filter: SymbolListFilter) -> Result<Vec<Symbol>, CodeIntelError>;
+    async fn most_called_functions(&self, limit: u32) -> Result<Vec<SymbolMetric>, CodeIntelError>;
+    async fn most_impactful_symbols(&self, limit: u32) -> Result<Vec<SymbolMetric>, CodeIntelError>;
+    async fn unused_exports(&self, limit: u32) -> Result<Vec<Symbol>, CodeIntelError>;
+    async fn most_coupled_modules(&self, limit: u32) -> Result<Vec<ModuleCoupling>, CodeIntelError>;
+    async fn longest_call_chains(&self, limit: u32) -> Result<Vec<CallChain>, CodeIntelError>;
+    async fn find_entry_points(&self) -> Result<Vec<Symbol>, CodeIntelError>;
+    async fn list_todo_comments(&self) -> Result<Vec<TodoComment>, CodeIntelError>;
+    async fn complexity_scores(&self, limit: u32) -> Result<Vec<ComplexityScore>, CodeIntelError>;
+    async fn most_changed_files(
+        &self,
+        time_range: Option<TimeRange>,
+        limit: u32,
+    ) -> Result<Vec<(String, u32)>, CodeIntelError>;
+}
+
+struct SymbolListFilter {
+    kind: Option<SymbolKind>,
+    exported_only: bool,
+    file_path: Option<String>,
+    module_path: Option<String>,
+    limit: Option<u32>,
+}
+
+struct SymbolMetric {
+    symbol: Symbol,
+    metric: u32,
+    detail: Option<String>,
+}
+
+struct ModuleCoupling {
+    module_a: String,
+    module_b: String,
+    reference_count: u32,
+}
+
+struct CallChain {
+    chain: Vec<Symbol>,
+    depth: u32,
+}
+
+struct ComplexityScore {
+    symbol: Symbol,
+    score: u32,
+    factors: Vec<String>,
+}
+
+struct TodoComment {
+    file_path: String,
+    line: u32,
+    text: String,
+    kind: String, // "TODO" | "FIXME" | "HACK"
+}
+
+struct StatsReport {
+    total_symbols: u32,
+    total_references: u32,
+    exported_symbols: u32,
+    files_indexed: u32,
+}
+```
 
 ---
 
@@ -706,7 +801,7 @@ fn show_card(&self, card: Card);
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `id` | `String` | 唯一ID |
-| `type` | `CardType` | call_graph / reference_list / change_history / code_preview / env_status / ambiguity_options |
+| `type` | `CardType` | call_graph / reference_list / change_history / symbol_overview / symbol_ranking / module_coupling / call_chain / todo_list / stats_report / change_heat / env_status / ambiguity_options |
 | `title` | `String` | 卡片标题 |
 | `data` | `CardData` | 卡片数据载荷 |
 | `ttl_seconds` | `u32` | 存活时间，0 = 手动关闭 |

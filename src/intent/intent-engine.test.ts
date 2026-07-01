@@ -110,6 +110,49 @@ describe('IntentEngine', () => {
     }
   });
 
+  // TC-UT-IE-019: list_symbols 意图
+  it('should recognize list_symbols intent', () => {
+    const result = parse('列出所有导出的函数');
+    expect('intentType' in result && result.intentType).toBe('list_symbols');
+    if ('entities' in result) {
+      expect(result.entities?.filter?.kind).toBe('function');
+      expect(result.entities?.filter?.exportedOnly).toBe(true);
+    }
+  });
+
+  // TC-UT-IE-020: stats 意图
+  it('should recognize stats intent', () => {
+    const result = parse('项目代码统计');
+    expect('intentType' in result && result.intentType).toBe('stats');
+  });
+
+  // TC-UT-IE-021: analytics 最热函数
+  it('should recognize analytics intent for most called functions', () => {
+    const result = parse('调用次数最多的函数');
+    expect('intentType' in result && result.intentType).toBe('analytics');
+    if ('entities' in result) {
+      expect(result.entities?.subType).toBe('most_called');
+    }
+  });
+
+  // TC-UT-IE-022: analytics 死代码
+  it('should recognize analytics intent for unused exports', () => {
+    const result = parse('有哪些未使用的导出');
+    expect('intentType' in result && result.intentType).toBe('analytics');
+    if ('entities' in result) {
+      expect(result.entities?.subType).toBe('unused_exports');
+    }
+  });
+
+  // TC-UT-IE-023: analytics TODO 扫描
+  it('should recognize analytics intent for TODO comments', () => {
+    const result = parse('项目里有哪些 TODO');
+    expect('intentType' in result && result.intentType).toBe('analytics');
+    if ('entities' in result) {
+      expect(result.entities?.subType).toBe('todos');
+    }
+  });
+
   // TC-UT-IE-014: resolve_ambiguity
   it('should resolve ambiguity by index', () => {
     const candidates = [

@@ -101,6 +101,13 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
     return rows.map(this.rowToSymbol);
   }
 
+  symbolsFindAll(): Symbol[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM symbols ORDER BY file_path, line_start'
+    ).all() as Record<string, unknown>[];
+    return rows.map(this.rowToSymbol);
+  }
+
   symbolsSearch(query: string, limit = 10): Symbol[] {
     const rows = this.db.prepare(
       'SELECT * FROM symbols WHERE name LIKE ? LIMIT ?'
@@ -159,6 +166,13 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
     const rows = this.db.prepare(
       'SELECT * FROM refs WHERE source_symbol_id = ?'
     ).all(symbolId) as Record<string, unknown>[];
+    return rows.map(this.rowToRef);
+  }
+
+  refsFindAll(): Reference[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM refs'
+    ).all() as Record<string, unknown>[];
     return rows.map(this.rowToRef);
   }
 

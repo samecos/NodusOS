@@ -9,7 +9,7 @@ AI-Native Operating System for Developers.
 # 安装依赖
 npm install
 
-# 运行测试（当前：135 个测试，全绿）
+# 运行测试（当前：160 个测试，全绿）
 npm test
 
 # 启动 Nodus，打开当前目录的项目
@@ -41,6 +41,14 @@ auth模块最近一周改了什么
 | 改了会有什么影响 | `如果我改了User模型，哪些文件会受影响` |
 | 模块最近改了什么 | `auth模块最近一周改了什么` |
 | 文件里有什么 | `payment.service.ts里有哪些函数` |
+| 列出导出函数 | `列出所有导出的函数` |
+| 代码库统计 | `项目代码统计` |
+| 最热函数 | `调用次数最多的函数` |
+| 死代码检测 | `有哪些未使用的导出` |
+| 变更热点 | `变更热点文件` |
+| TODO 扫描 | `项目里有哪些 TODO` |
+| 模块耦合度 | `模块耦合度` |
+| 最长调用链 | `最长调用链` |
 
 支持中英文，支持同义改写。例如“改动 refundOrder 会影响哪些地方”“refundOrder 的影响范围”也能识别为影响分析。
 
@@ -61,8 +69,9 @@ src/
 │   ├── event-bus.ts
 │   └── nodus-shell.ts
 │
-├── code-intel/                     # 核心引擎 — tree-sitter 语义索引
+├── code-intel/                     # 核心引擎 — tree-sitter 语义索引 + 代码分析
 │   ├── code-intelligence.ts
+│   ├── code-analytics.ts
 │   └── parsers/
 │       ├── typescript-parser.ts
 │       └── python-parser.ts
@@ -101,7 +110,7 @@ Human Input (Voice/Text)
 ## TDD Development
 
 ```bash
-npm test              # 运行全部 85 个测试
+npm test              # 运行全部 160 个测试
 npm run test:watch    # 监听模式
 npm run typecheck     # TypeScript 检查
 ```
@@ -141,11 +150,18 @@ npm rebuild tree-sitter-python
 - [x] 完善 EventBus 标准事件类型与 `NodusShell` 事件路由
 - [x] 扩展 `UIRenderer` 接口（卡片系统、呼吸灯、输入条、代码导航）
 - [x] 实现 `project_runtimes` / `project_dependencies` 的持久化与读取
+- [x] 扩展 `IntentType` 支持 `list_symbols` / `stats` / `analytics`
+- [x] 实现 `CodeAnalytics` 分析接口：`listSymbols`、`mostCalledFunctions`、`mostImpactfulSymbols`、`unusedExports`
+- [x] 扩展 `TerminalRenderer` 支持列表/排行榜/表格/统计报告/变更热点展示
+- [x] 更新意图引擎例句库覆盖新查询类型
 
 ### P2 — 工程化与文档
 - [x] 实现数据库迁移系统（`schema_version` + migrations）
 - [x] 实现查询历史 90 天自动清理策略
 - [x] 实现统一日志系统（`~/.nodus/logs/`）
+- [x] 实现 `mostCoupledModules` / `longestCallChains` / `findEntryPoints` / `listTodoComments` / `complexityScores` / `mostChangedFiles`
+- [x] 更新 `ArchitecturalDesignPhase/04-API-Reference.md` 新增 CodeAnalytics 章节
+- [x] 更新 README 功能说明与测试数量
 
 ## Documentation
 

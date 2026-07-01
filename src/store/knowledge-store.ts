@@ -19,6 +19,7 @@ export interface KnowledgeStore {
   symbolsFindById(id: SymbolId): Symbol | undefined;
   symbolsFindByFile(filePath: string): Symbol[];
   symbolsFindByModule(modulePath: string): Symbol[];
+  symbolsFindAll(): Symbol[];
   symbolsSearch(query: string, limit?: number): Symbol[];
 
   // ---- 引用操作 ----
@@ -27,6 +28,7 @@ export interface KnowledgeStore {
   refsFindByFile(filePath: string): Reference[];
   refsFindByTarget(symbolId: SymbolId): Reference[];
   refsFindBySource(symbolId: SymbolId): Reference[];
+  refsFindAll(): Reference[];
 
   // ---- 调用图 ----
   callgraphStore(graph: CallGraph): void;

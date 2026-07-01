@@ -7,6 +7,7 @@ import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { IntentError, QueryIntent } from '../intent/intent-engine.js';
 import type { Symbol, Reference, CallGraph, ProjectMeta } from '../common/types.js';
 import type { ImpactReport, ChangeRecord } from '../code-intel/code-intelligence.js';
+import type { SymbolMetric, ModuleCoupling, CallChain, TodoComment } from '../code-intel/code-analytics.js';
 
 const BLUE = '\x1b[36m';
 const GREEN = '\x1b[32m';
@@ -39,6 +40,18 @@ export class TerminalRenderer implements UIRenderer {
         return this.renderChangeHistory(result.records);
       case 'symbol_overview':
         return this.renderSymbolOverview(result.symbols);
+      case 'symbol_ranking':
+        return this.renderSymbolRanking(result.title, result.metrics);
+      case 'module_coupling':
+        return this.renderModuleCoupling(result.couplings);
+      case 'call_chain':
+        return this.renderCallChains(result.chains);
+      case 'todo_list':
+        return this.renderTodoList(result.comments);
+      case 'stats_report':
+        return this.renderStatsReport(result.stats);
+      case 'change_heat':
+        return this.renderChangeHeat(result.files);
       default:
         return JSON.stringify(result, null, 2);
     }
@@ -98,7 +111,10 @@ export class TerminalRenderer implements UIRenderer {
     if ('kind' in card.data && typeof card.data.kind === 'string') {
       if (card.data.kind === 'symbol_list' || card.data.kind === 'reference_list' ||
           card.data.kind === 'call_graph' || card.data.kind === 'impact_report' ||
-          card.data.kind === 'change_history' || card.data.kind === 'symbol_overview') {
+          card.data.kind === 'change_history' || card.data.kind === 'symbol_overview' ||
+          card.data.kind === 'symbol_ranking' || card.data.kind === 'module_coupling' ||
+          card.data.kind === 'call_chain' || card.data.kind === 'todo_list' ||
+          card.data.kind === 'stats_report' || card.data.kind === 'change_heat') {
         return this.render(card.data as QueryResult);
       }
       if (card.data.kind === 'empty_input' || card.data.kind === 'unparseable' ||
@@ -276,6 +292,79 @@ export class TerminalRenderer implements UIRenderer {
     return this.renderSymbolList(symbols);
   }
 
+  private renderSymbolRanking(title: string, metrics: SymbolMetric[]): string {
+    if (metrics.length === 0) return c(`\n${title}: 无数据`, DIM);
+
+    let out = c(`\n${title}\n`, BOLD);
+    const rankWidth = String(metrics.length).length;
+    for (let i = 0; i < metrics.length; i++) {
+      const m = metrics[i]!;
+      const rank = String(i + 1).padStart(rankWidth, ' ');
+      const loc = `${m.symbol.location.file_path}:${m.symbol.location.line_start}`;
+      out += `\n  ${c(rank, YELLOW)}  ${c(m.symbol.name, BOLD)} ${c(`[${m.symbol.kind}]`, DIM)}`;
+      out += `\n      ${c(String(m.metric), GREEN)} ${c(m.detail ?? 'refs', DIM)} · ${c(loc, BLUE)}`;
+    }
+    return out + '\n';
+  }
+
+  private renderModuleCoupling(couplings: ModuleCoupling[]): string {
+    if (couplings.length === 0) return c('\n模块耦合: 无数据', DIM);
+
+    let out = c('\n模块耦合度 Top\n', BOLD);
+    const colWidth = Math.max(...couplings.map(c => c.moduleA.length), ...couplings.map(c => c.moduleB.length));
+    out += `\n  ${c('#', DIM)}  ${c('Module A'.padEnd(colWidth), BOLD)}  ${c('Module B'.padEnd(colWidth), BOLD)}  ${c('Refs', BOLD)}`;
+    for (let i = 0; i < couplings.length; i++) {
+      const cpl = couplings[i]!;
+      out += `\n  ${String(i + 1).padStart(2, ' ')}  ${c(cpl.moduleA.padEnd(colWidth), BLUE)}  ${c(cpl.moduleB.padEnd(colWidth), BLUE)}  ${c(String(cpl.referenceCount), YELLOW)}`;
+    }
+    return out + '\n';
+  }
+
+  private renderCallChains(chains: CallChain[]): string {
+    if (chains.length === 0) return c('\n调用链: 无数据', DIM);
+
+    let out = c('\n最长调用链\n', BOLD);
+    for (const chain of chains) {
+      const names = chain.chain.map(s => c(s.name, BOLD)).join(' → ');
+      out += `\n  ${names} ${c(`(depth: ${chain.depth})`, DIM)}`;
+    }
+    return out + '\n';
+  }
+
+  private renderTodoList(comments: TodoComment[]): string {
+    if (comments.length === 0) return c('\n未扫描到 TODO / FIXME / HACK', DIM);
+
+    let out = c(`\n${comments.length} 处待办 / 备忘\n`, BOLD);
+    for (const comment of comments) {
+      const kindColor = comment.kind === 'TODO' ? YELLOW : comment.kind === 'FIXME' ? RED : BLUE;
+      out += `\n  ${c(comment.kind, kindColor)} ${c(`${comment.filePath}:${comment.line}`, BLUE)}`;
+      out += `\n    ${comment.text}`;
+    }
+    return out + '\n';
+  }
+
+  private renderStatsReport(stats: import('../code-intel/code-intelligence.js').StatsReport): string {
+    let out = c('\n代码库统计\n', BOLD);
+    out += `\n  ${c('符号总数:', DIM)}      ${c(String(stats.totalSymbols), GREEN)}`;
+    out += `\n  ${c('引用总数:', DIM)}      ${c(String(stats.totalReferences), GREEN)}`;
+    out += `\n  ${c('导出符号数:', DIM)}    ${c(String(stats.exportedSymbols), GREEN)}`;
+    out += `\n  ${c('已索引文件数:', DIM)}  ${c(String(stats.filesIndexed), GREEN)}`;
+    return out + '\n';
+  }
+
+  private renderChangeHeat(files: { filePath: string; changeCount: number }[]): string {
+    if (files.length === 0) return c('\n暂无变更热点数据', DIM);
+
+    let out = c('\n变更热点文件\n', BOLD);
+    const maxCount = Math.max(...files.map(f => f.changeCount), 1);
+    for (const f of files) {
+      const barLength = Math.round((f.changeCount / maxCount) * 10);
+      const bar = '█'.repeat(barLength).padEnd(10, '░');
+      out += `\n  ${c(f.filePath, BLUE)}  ${c(String(f.changeCount).padStart(3, ' '), YELLOW)} ${c(bar, RED)}`;
+    }
+    return out + '\n';
+  }
+
   private renderAmbiguous(candidates: QueryIntent[]): string {
     let out = c('\n你指的是？', BOLD) + '\n';
     for (let i = 0; i < candidates.length; i++) {
@@ -292,7 +381,8 @@ export class TerminalRenderer implements UIRenderer {
   private inferCardKind(data: Card['data']): Card['kind'] {
     if ('kind' in data && typeof data.kind === 'string') {
       const k = data.kind;
-      if (['symbol_list', 'reference_list', 'call_graph', 'impact_report', 'change_history', 'symbol_overview'].includes(k)) {
+      if (['symbol_list', 'reference_list', 'call_graph', 'impact_report', 'change_history', 'symbol_overview',
+           'symbol_ranking', 'module_coupling', 'call_chain', 'todo_list', 'stats_report', 'change_heat'].includes(k)) {
         return k as Card['kind'];
       }
       if (['empty_input', 'unparseable', 'ambiguous', 'unsupported'].includes(k)) {
