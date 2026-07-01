@@ -16,7 +16,7 @@
 - 测试覆盖新增脚本与关键加载路径
 - 不引入新的运行时依赖；仅使用项目已有的包
 - 脚本必须跨平台（macOS / Linux / Windows）可跑；Windows 上降级为提示手动执行
-- 修改后 `npm test` 仍须 160 个测试全绿
+- 修改后 `npm test` 仍须全绿（当前基线为 165 个测试）
 
 ---
 
@@ -328,7 +328,7 @@ git commit -m "test(common): add native dependency loading tests"
 # 安装依赖
 npm install
 
-# 运行测试（当前：160 个测试，全绿）
+# 运行测试
 npm test
 ```
 ```
