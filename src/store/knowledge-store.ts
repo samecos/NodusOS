@@ -8,6 +8,7 @@ import type {
   Reference, ReferenceKind,
   CallGraph, CallDirection,
   ProjectMeta, QueryHistoryEntry,
+  FileIndexState, RuntimeRequirement, Dependency,
 } from '../common/types.js';
 
 export interface KnowledgeStore {
@@ -23,6 +24,7 @@ export interface KnowledgeStore {
   // ---- 引用操作 ----
   refsUpsert(refs: Reference[]): number;
   refsRemoveForFile(filePath: string): number;
+  refsFindByFile(filePath: string): Reference[];
   refsFindByTarget(symbolId: SymbolId): Reference[];
   refsFindBySource(symbolId: SymbolId): Reference[];
 
@@ -31,10 +33,25 @@ export interface KnowledgeStore {
   callgraphGet(symbolId: SymbolId, direction: CallDirection, maxDepth: number): CallGraph | null;
   callgraphRebuildForFile(filePath: string): void;
 
+  // ---- 文件索引状态 ----
+  fileStateGet(filePath: string): FileIndexState | undefined;
+  fileStateUpsert(state: FileIndexState): void;
+  fileStateRemove(filePath: string): void;
+
   // ---- 项目 ----
   projectGet(path: string): ProjectMeta | undefined;
+  projectGetFull(path: string): ProjectMeta | undefined;
   projectUpsert(meta: ProjectMeta): void;
+  projectUpsertFull(meta: ProjectMeta): void;
   projectList(): ProjectMeta[];
+
+  // ---- 项目运行时 ----
+  runtimesGet(projectPath: string): RuntimeRequirement[];
+  runtimesUpsert(projectPath: string, runtimes: RuntimeRequirement[]): void;
+
+  // ---- 项目依赖 ----
+  dependenciesGet(projectPath: string): Dependency[];
+  dependenciesUpsert(projectPath: string, dependencies: Dependency[]): void;
 
   // ---- 偏好 ----
   prefGet(key: string): unknown;
@@ -44,6 +61,8 @@ export interface KnowledgeStore {
   // ---- 查询历史 ----
   historyRecord(entry: QueryHistoryEntry): void;
   historyRecent(limit: number): QueryHistoryEntry[];
+  /** 清理指定日期之前的查询历史，返回删除条数 */
+  historyCleanup(beforeDate?: string): number;
 
   // ---- 生命周期 ----
   close(): void;

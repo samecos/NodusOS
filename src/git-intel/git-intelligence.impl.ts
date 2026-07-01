@@ -7,14 +7,15 @@ import type {
   GitIntelligence, CommitInfo, DiffData, DiffHunk, DiffLine,
   DiffStats, BlameInfo, ChangeScope,
 } from './git-intelligence.js';
+import { GitError } from '../common/errors.js';
 
 function git(repoPath: string, args: string): string {
   try {
     return execSync(`git ${args}`, { encoding: 'utf-8', cwd: repoPath, stdio: 'pipe' });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('not a git repository')) throw new Error(`Not a git repo: ${repoPath}`);
-    throw new Error(`Git command failed: git ${args}\n${msg}`);
+    if (msg.includes('not a git repository')) throw new GitError(GitError.NOT_A_REPO, `Not a git repo: ${repoPath}`, { cause: err });
+    throw new GitError(GitError.COMMAND_FAILED, `Git command failed: git ${args}\n${msg}`, { cause: err });
   }
 }
 

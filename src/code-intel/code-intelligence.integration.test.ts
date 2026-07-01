@@ -66,6 +66,14 @@ describe('CodeIntelligence Integration', () => {
     expect(names).toContain('logAudit');
   });
 
+  it('should record file index state after indexing', async () => {
+    const state = store.fileStateGet(join(FIXTURE_DIR, 'src', 'index.ts'));
+    expect(state).toBeDefined();
+    expect(state!.checksum.length).toBeGreaterThan(0);
+    expect(state!.symbol_count).toBeGreaterThan(0);
+    expect(state!.error).toBeUndefined();
+  });
+
   it('should report correct index status', () => {
     const status = ci.indexStatus();
     expect(status.kind).toBe('ready');
@@ -258,5 +266,72 @@ function willChange() { return 2; }
     const changedNames = latest.changedSymbols.map(s => s.name);
     expect(changedNames).toContain('willChange');
     expect(changedNames).not.toContain('stableFunction');
+  });
+});
+
+// TC-IT-CI-KS-009 ~ TC-IT-CI-KS-011: checksum 增量索引
+describe('CodeIntelligence Incremental Indexing', () => {
+  const tmpDir = join(tmpdir(), `nodus-incremental-test-${Date.now()}`);
+  let store: KnowledgeStore;
+  let ci: CodeIntelligence;
+
+  beforeAll(async () => {
+    mkdirSync(join(tmpDir, 'src'), { recursive: true });
+    writeFileSync(join(tmpDir, 'src', 'a.ts'), `
+export function helperA(): string { return 'a'; }
+`);
+    writeFileSync(join(tmpDir, 'src', 'b.ts'), `
+import { helperA } from './a';
+export function useA(): string { return helperA(); }
+`);
+    writeFileSync(join(tmpDir, 'package.json'), JSON.stringify({ name: 'incremental-test' }));
+
+    store = new SqliteKnowledgeStore(':memory:');
+    ci = new CodeIntelligenceImpl(store);
+    await ci.indexProject(tmpDir, ['typescript']);
+  });
+
+  afterAll(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('TC-IT-CI-KS-009: should skip unchanged files on second project index', async () => {
+    const firstState = store.fileStateGet(join(tmpDir, 'src', 'a.ts'));
+    expect(firstState).toBeDefined();
+
+    const report = await ci.indexProject(tmpDir, ['typescript']);
+    expect(report.filesFailed).toBe(0);
+
+    const secondState = store.fileStateGet(join(tmpDir, 'src', 'a.ts'));
+    expect(secondState!.checksum).toBe(firstState!.checksum);
+    expect(secondState!.indexed_at).toBe(firstState!.indexed_at);
+  });
+
+  it('TC-IT-CI-KS-010: indexFile should skip unchanged file', async () => {
+    const result = await ci.indexFile(join(tmpDir, 'src', 'a.ts'));
+    expect(result.symbolsAdded).toBe(0);
+    expect(result.symbolsRemoved).toBe(0);
+    expect(result.referencesUpdated).toBe(0);
+  });
+
+  it('TC-IT-CI-KS-011: should re-index changed file and preserve unchanged file state', async () => {
+    const unchangedStateBefore = store.fileStateGet(join(tmpDir, 'src', 'b.ts'));
+
+    // 修改 a.ts
+    writeFileSync(join(tmpDir, 'src', 'a.ts'), `
+export function helperA(): string { return 'a-modified'; }
+export function helperB(): string { return 'b'; }
+`);
+
+    const report = await ci.indexProject(tmpDir, ['typescript']);
+    expect(report.filesFailed).toBe(0);
+
+    const aState = store.fileStateGet(join(tmpDir, 'src', 'a.ts'));
+    expect(aState!.symbol_count).toBe(2);
+
+    const unchangedStateAfter = store.fileStateGet(join(tmpDir, 'src', 'b.ts'));
+    expect(unchangedStateAfter!.checksum).toBe(unchangedStateBefore!.checksum);
+    expect(unchangedStateAfter!.indexed_at).toBe(unchangedStateBefore!.indexed_at);
   });
 });

@@ -4,6 +4,7 @@
 
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { VoiceError } from '../common/errors.js';
 
 export interface STTEngine {
   /** 是否可用 */
@@ -31,7 +32,7 @@ export class WhisperCliEngine implements STTEngine {
 
   async transcribe(audioPath: string): Promise<string> {
     if (!existsSync(audioPath)) {
-      throw new Error(`Audio file not found: ${audioPath}`);
+      throw new VoiceError(VoiceError.AUDIO_FILE_NOT_FOUND, `Audio file not found: ${audioPath}`);
     }
 
     try {
@@ -42,7 +43,7 @@ export class WhisperCliEngine implements STTEngine {
       );
       return output.trim();
     } catch (err) {
-      throw new Error(`Transcription failed: ${err}`);
+      throw new VoiceError(VoiceError.TRANSCRIPTION_FAILED, `Transcription failed: ${err}`, { cause: err });
     }
   }
 }

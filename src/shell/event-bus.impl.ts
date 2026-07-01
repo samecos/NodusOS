@@ -1,27 +1,26 @@
-import type { BaseEvent, EventBus, EventHandler, Subscription } from './event-bus.js';
+import type { EventBus, EventHandler, NodusEvent, EventKind } from './event-bus.js';
 
 export class SimpleEventBus implements EventBus {
-  private handlers = new Map<string, Set<EventHandler>>();
+  private handlers = new Map<EventKind, Set<EventHandler>>();
 
-  emit(event: BaseEvent): void {
-    const kind = event.kind;
-    const handlers = this.handlers.get(kind);
+  emit(event: NodusEvent): void {
+    const handlers = this.handlers.get(event.kind);
     if (!handlers) return;
 
     for (const handler of handlers) {
-      handler(event);
+      (handler as EventHandler)(event);
     }
   }
 
-  on(kind: string, handler: EventHandler): Subscription {
+  on<K extends EventKind>(kind: K, handler: EventHandler<Extract<NodusEvent, { kind: K }>>): () => void {
     if (!this.handlers.has(kind)) {
       this.handlers.set(kind, new Set());
     }
     const handlers = this.handlers.get(kind)!;
-    handlers.add(handler);
+    handlers.add(handler as EventHandler);
 
     return () => {
-      handlers.delete(handler);
+      handlers.delete(handler as EventHandler);
     };
   }
 

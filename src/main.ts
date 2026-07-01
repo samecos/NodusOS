@@ -4,22 +4,21 @@
 // 入口点
 // ============================================================
 
-import { mkdirSync } from 'node:fs';
 import { NodusShell } from './shell/nodus-shell.js';
+import { JsonConfigManager } from './common/config.js';
 
-const NODUS_DIR = `${process.env.HOME ?? process.env.USERPROFILE ?? '.'}/.nodus`;
-const DB_PATH = `${NODUS_DIR}/nodus.db`;
 const PROJECTS = process.argv.slice(2);
 
-// 确保 ~/.nodus/ 目录存在
-mkdirSync(NODUS_DIR, { recursive: true });
-
 async function main() {
-  const shell = new NodusShell({
-    projectPaths: PROJECTS.length > 0 ? PROJECTS : [process.cwd()],
-    dbPath: DB_PATH,
-    locale: process.env.LANG?.startsWith('zh') ? 'zh-CN' : 'en-US',
-  });
+  const configManager = new JsonConfigManager();
+  const config = configManager.get();
+
+  // 命令行传入的项目路径覆盖配置文件
+  if (PROJECTS.length > 0) {
+    config.projectPaths = PROJECTS;
+  }
+
+  const shell = new NodusShell(config);
 
   await shell.bootstrap();
 

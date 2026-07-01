@@ -8,6 +8,7 @@ import { execSync } from 'node:child_process';
 import { platform } from 'node:os';
 import type { Language, ProjectMeta, PackageManager, Framework, Dependency, RuntimeRequirement } from '../common/types.js';
 import type { EnvironmentManager, RuntimeStatus, EnvStatus, DepInstallReport } from './environment-manager.js';
+import { EnvError } from '../common/errors.js';
 
 export class EnvironmentManagerImpl implements EnvironmentManager {
   private currentStatus: EnvStatus = { kind: 'detecting' };
@@ -88,7 +89,7 @@ export class EnvironmentManagerImpl implements EnvironmentManager {
 
     // 如果没有识别到任何语言
     if (languages.length === 0) {
-      throw new Error(`Unknown project type at ${path}`);
+      throw new EnvError(EnvError.UNKNOWN_PROJECT_TYPE, `Unknown project type at ${path}`);
     }
 
     const meta: ProjectMeta = {
@@ -351,7 +352,7 @@ export class EnvironmentManagerImpl implements EnvironmentManager {
       return execSync(command, { encoding: 'utf-8', stdio: 'pipe' }).trim();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Command failed: ${command}\n${msg}`);
+      throw new EnvError(EnvError.COMMAND_FAILED, `Command failed: ${command}\n${msg}`, { cause: err });
     }
   }
 }

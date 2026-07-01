@@ -2,10 +2,10 @@
 // TerminalRenderer — 终端格式化输出
 // ============================================================
 
-import type { UIRenderer } from './ui-renderer.js';
+import type { UIRenderer, Card, BreathLightState } from './ui-renderer.js';
 import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { IntentError, QueryIntent } from '../intent/intent-engine.js';
-import type { Symbol, Reference, CallGraph } from '../common/types.js';
+import type { Symbol, Reference, CallGraph, ProjectMeta } from '../common/types.js';
 import type { ImpactReport, ChangeRecord } from '../code-intel/code-intelligence.js';
 
 const BLUE = '\x1b[36m';
@@ -63,7 +63,101 @@ export class TerminalRenderer implements UIRenderer {
     return `\n${c('▸ ' + title, BOLD)}\n${c(body, DIM)}\n`;
   }
 
-  // ---- private renderers ----
+  // ---- 卡片系统 ----
+
+  private cards = new Map<string, Card>();
+
+  createCard(
+    id: string,
+    title: string,
+    data: QueryResult | IntentError | ProjectMeta | QueryIntent[] | { title: string; body: string },
+    ttlSeconds?: number,
+  ): Card {
+    const kind = this.inferCardKind(data);
+    const card: Card = {
+      id,
+      kind,
+      title,
+      data,
+      createdAt: new Date().toISOString(),
+      ttlSeconds,
+    };
+    this.cards.set(id, card);
+    return card;
+  }
+
+  dismissCard(id: string): void {
+    this.cards.delete(id);
+  }
+
+  listCards(): Card[] {
+    return [...this.cards.values()];
+  }
+
+  renderCard(card: Card): string {
+    if ('kind' in card.data && typeof card.data.kind === 'string') {
+      if (card.data.kind === 'symbol_list' || card.data.kind === 'reference_list' ||
+          card.data.kind === 'call_graph' || card.data.kind === 'impact_report' ||
+          card.data.kind === 'change_history' || card.data.kind === 'symbol_overview') {
+        return this.render(card.data as QueryResult);
+      }
+      if (card.data.kind === 'empty_input' || card.data.kind === 'unparseable' ||
+          card.data.kind === 'ambiguous' || card.data.kind === 'unsupported') {
+        return this.renderError(card.data as IntentError);
+      }
+    }
+    if (Array.isArray(card.data) && card.data.length > 0 && 'intentType' in card.data[0]) {
+      return this.renderAmbiguous(card.data as QueryIntent[]);
+    }
+    if ('root_path' in card.data) {
+      return this.renderNotification(card.title, `Project: ${(card.data as ProjectMeta).name}`);
+    }
+    if ('title' in card.data && 'body' in card.data) {
+      const n = card.data as { title: string; body: string };
+      return this.renderNotification(n.title, n.body);
+    }
+    return this.renderNotification(card.title, JSON.stringify(card.data, null, 2));
+  }
+
+  // ---- 呼吸灯 ----
+
+  setBreathLight(state: BreathLightState): void {
+    // 终端渲染器：以状态标签形式输出
+    const labels: Record<BreathLightState, string> = {
+      idle: '[idle]',
+      listening: '[listening]',
+      thinking: '[thinking]',
+      speaking: '[speaking]',
+      error: '[error]',
+    };
+    console.log(c(labels[state] ?? '[unknown]', DIM));
+  }
+
+  // ---- 输入条 ----
+
+  showInput(placeholder = 'Type a query...'): void {
+    console.log(c(`> ${placeholder}`, DIM));
+  }
+
+  hideInput(): void {
+    // 终端环境无实际输入条，无需操作
+  }
+
+  setInputText(text: string): void {
+    console.log(c(`> ${text}`, DIM));
+  }
+
+  // ---- 代码导航 ----
+
+  navigateToSymbol(filePath: string, line: number, column = 1): void {
+    console.log(c(`→ ${filePath}:${line}:${column}`, BLUE));
+  }
+
+  renderCodeSnippet(filePath: string, lineRange: { start: number; end: number }): string {
+    return c(`\n[Code: ${filePath}:${lineRange.start}-${lineRange.end}]\n`, DIM);
+  }
+
+  // ---- private helpers ----
 
   private renderSymbolList(symbols: Symbol[]): string {
     if (symbols.length === 0) return c('未找到匹配的符号', DIM);
@@ -193,6 +287,22 @@ export class TerminalRenderer implements UIRenderer {
       }
     }
     return out + '\n';
+  }
+
+  private inferCardKind(data: Card['data']): Card['kind'] {
+    if ('kind' in data && typeof data.kind === 'string') {
+      const k = data.kind;
+      if (['symbol_list', 'reference_list', 'call_graph', 'impact_report', 'change_history', 'symbol_overview'].includes(k)) {
+        return k as Card['kind'];
+      }
+      if (['empty_input', 'unparseable', 'ambiguous', 'unsupported'].includes(k)) {
+        return 'ambiguity';
+      }
+    }
+    if (Array.isArray(data) && data.length > 0 && 'intentType' in data[0]) return 'ambiguity';
+    if ('root_path' in data) return 'env_status';
+    if ('title' in data && 'body' in data) return 'notification';
+    return 'notification';
   }
 
   private kindIcon(kind: string): string {

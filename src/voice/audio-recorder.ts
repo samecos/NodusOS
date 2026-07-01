@@ -7,6 +7,7 @@ import { platform } from 'node:os';
 import { mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { VoiceError } from '../common/errors.js';
 
 export interface AudioRecorder {
   /** 检测录音工具是否可用 */
@@ -23,7 +24,7 @@ export class SystemAudioRecorder implements AudioRecorder {
   record(durationMs: number): string {
     const cmd = this.detectCommand();
     if (!cmd) {
-      throw new Error('No available audio recording command');
+      throw new VoiceError(VoiceError.RECORDING_NOT_SUPPORTED, 'No available audio recording command');
     }
 
     const tmpDir = mkdtempSync(join(tmpdir(), 'nodus-audio-'));
@@ -45,14 +46,14 @@ export class SystemAudioRecorder implements AudioRecorder {
           { stdio: 'pipe', timeout: durationMs + 2000 },
         );
       } else {
-        throw new Error(`Audio recording not supported on ${os}`);
+        throw new VoiceError(VoiceError.RECORDING_NOT_SUPPORTED, `Audio recording not supported on ${os}`);
       }
     } catch (err) {
-      throw new Error(`Recording failed: ${err}`);
+      throw new VoiceError(VoiceError.RECORDING_FAILED, `Recording failed: ${err}`, { cause: err });
     }
 
     if (!existsSync(outputPath)) {
-      throw new Error('Recording produced no output file');
+      throw new VoiceError(VoiceError.RECORDING_NO_OUTPUT, 'Recording produced no output file');
     }
 
     return outputPath;

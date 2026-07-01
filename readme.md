@@ -9,7 +9,7 @@ AI-Native Operating System for Developers.
 # 安装依赖
 npm install
 
-# 运行测试（当前：98 个测试，全绿）
+# 运行测试（当前：130 个测试，全绿）
 npm test
 
 # 启动 Nodus，打开当前目录的项目
@@ -129,26 +129,21 @@ npm rebuild tree-sitter-python
 > 完成一项后在此勾选，并同步更新 `npm test` 结果。
 
 ### P0 — 阻塞性问题
-- [x] 修复 `better-sqlite3` 原生二进制加载问题（15 个 store 测试失败）
-- [x] 修复 `tree-sitter` / `tree-sitter-typescript` 原生二进制加载问题（3 个测试套件无法运行）
-- [x] 补全 `code-intelligence.test.ts` 单元测试
-- [x] 补全 `code-intelligence.integration.test.ts` 集成测试
-- [x] 补全 `nodus-shell.test.ts` 测试
+- [x] 补齐数据库 Schema：`file_index_state` / `project_runtimes` / `project_dependencies` 表
+- [x] 补齐数据库索引（`idx_symbols_language` / `parent` / `file_kind`、`idx_refs_kind`、`idx_file_state_checksum`、`idx_query_hist_intent`）
+- [x] 在 `index_file` / `indexProject` 中使用 `file_index_state` 做 checksum 增量索引
 
 ### P1 — MVP 功能缺口
-- [x] 实现真正的 VoicePipeline（唤醒词 + 录音 + STT）
-- [x] 实现 EnvironmentManager 真正的运行时自动安装（Node/Python）
-- [x] 提升代码解析精度：跨文件引用、类型引用、继承关系、装饰器
-- [x] 完善 `changeHistory` 符号级变更追踪
-- [x] 修复 `impactAnalysis` 中 `transitiveCallers` 为空的问题
-- [x] 修复 `TypeScriptParser.isExported` 逻辑 bug
-- [x] 修复 `PythonParser.parseReferences` 硬编码文件路径 `'src/test.py'`
-- [x] 将 `IntentEngine` 中的 CommonJS `require` 改为 ESM 动态导入
-- [x] 修复 `NodusShell` 中 `result_count` 计算、`installRuntime` 版本参数为空等细节
+- [x] 实现统一模块错误类型（`CodeIntelError` / `EnvError` / `GitError` / `VoiceError`）
+- [x] 实现 `~/.nodus/config.json` 配置系统与热加载
+- [x] 完善 EventBus 标准事件类型与 `NodusShell` 事件路由
+- [x] 扩展 `UIRenderer` 接口（卡片系统、呼吸灯、输入条、代码导航）
+- [x] 实现 `project_runtimes` / `project_dependencies` 的持久化与读取
 
 ### P2 — 工程化与文档
-- [x] 为 VoicePipeline 添加单元测试
-- [x] 更新 `readme.md` 测试状态描述并补充原生依赖处理文档
+- [x] 实现数据库迁移系统（`schema_version` + migrations）
+- [x] 实现查询历史 90 天自动清理策略
+- [x] 实现统一日志系统（`~/.nodus/logs/`）
 
 ## Documentation
 

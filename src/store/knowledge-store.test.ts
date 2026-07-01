@@ -1,5 +1,5 @@
 // ============================================================
-// KnowledgeStore 单元测试 — TC-UT-KS-001 ~ TC-UT-KS-018
+// KnowledgeStore 单元测试 — TC-UT-KS-001 ~ TC-UT-KS-023
 // ============================================================
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -191,6 +191,21 @@ describe('KnowledgeStore', () => {
   // ==========================================================
   // TC-UT-KS-012: 删除文件时级联删除引用
   // ==========================================================
+  it('TC-UT-KS-011: should find refs by file path', () => {
+    store.symbolsUpsert([
+      makeSymbol({ name: 'fnA', id: 'fa1', location: { file_path: 'src/a.ts', line_start: 1, line_end: 1, col_start: 1, col_end: 1 } }),
+      makeSymbol({ name: 'fnB', id: 'fb1', location: { file_path: 'src/b.ts', line_start: 1, line_end: 1, col_start: 1, col_end: 1 } }),
+    ]);
+    store.refsUpsert([
+      makeRef({ id: 'r1', source_symbol_id: 'fa1', target_symbol_id: 'fb1', location: { file_path: 'src/a.ts', line_start: 5, line_end: 5, col_start: 1, col_end: 1 } }),
+      makeRef({ id: 'r2', source_symbol_id: 'fa1', target_symbol_id: 'fb1', location: { file_path: 'src/a.ts', line_start: 10, line_end: 10, col_start: 1, col_end: 1 } }),
+    ]);
+
+    const refs = store.refsFindByFile('src/a.ts');
+    expect(refs).toHaveLength(2);
+    expect(refs.map(r => r.id).sort()).toEqual(['r1', 'r2']);
+  });
+
   it('TC-UT-KS-012: should cascade delete refs when removing file', () => {
     store.symbolsUpsert([
       makeSymbol({ name: 'fn', id: 'f1', location: { file_path: 'src/old.ts', line_start: 1, line_end: 1, col_start: 1, col_end: 1 } }),
@@ -288,6 +303,7 @@ describe('KnowledgeStore', () => {
     for (let i = 0; i < 100; i++) {
       store.historyRecord({
         raw_text: `query ${i}`,
+        intent_type: 'find_definition',
         latency_ms: 100,
         result_count: 1,
         timestamp: new Date().toISOString(),
@@ -298,5 +314,111 @@ describe('KnowledgeStore', () => {
     expect(recent).toHaveLength(5);
     // 最近的在前面
     expect(recent[0].raw_text).toBe('query 99');
+  });
+
+  // TC-UT-KS-025: 清理 90 天前的查询历史
+  it('TC-UT-KS-025: should cleanup query history older than cutoff date', () => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 30);
+
+    const oldDate = new Date(cutoff);
+    oldDate.setDate(oldDate.getDate() - 1);
+
+    store.historyRecord({
+      raw_text: 'old query',
+      intent_type: 'find_definition',
+      latency_ms: 100,
+      result_count: 1,
+      timestamp: oldDate.toISOString(),
+    });
+
+    store.historyRecord({
+      raw_text: 'recent query',
+      intent_type: 'find_definition',
+      latency_ms: 100,
+      result_count: 1,
+      timestamp: new Date().toISOString(),
+    });
+
+    const removed = store.historyCleanup(cutoff.toISOString());
+    expect(removed).toBe(1);
+
+    const recent = store.historyRecent(10);
+    expect(recent).toHaveLength(1);
+    expect(recent[0].raw_text).toBe('recent query');
+  });
+
+  // ==========================================================
+  // TC-UT-KS-019 ~ TC-UT-KS-021: 文件索引状态
+  // ==========================================================
+  it('TC-UT-KS-019: should CRUD file index state', () => {
+    store.fileStateUpsert({
+      file_path: 'src/a.ts',
+      checksum: 'sha256_abc',
+      symbol_count: 3,
+      indexed_at: new Date().toISOString(),
+    });
+
+    const state = store.fileStateGet('src/a.ts');
+    expect(state).toBeDefined();
+    expect(state!.checksum).toBe('sha256_abc');
+    expect(state!.symbol_count).toBe(3);
+
+    store.fileStateRemove('src/a.ts');
+    expect(store.fileStateGet('src/a.ts')).toBeUndefined();
+  });
+
+  // ==========================================================
+  // TC-UT-KS-022 ~ TC-UT-KS-023: 项目运行时与依赖
+  // ==========================================================
+  it('TC-UT-KS-022: should store and retrieve project runtimes', () => {
+    const meta: ProjectMeta = {
+      name: 'test-app',
+      root_path: '/tmp/test-app',
+      languages: ['typescript'],
+      runtimes: [{ language: 'typescript', constraint: '>=18.0.0', specified_in: 'package.json' }],
+      dependencies: [],
+    };
+    store.projectUpsert(meta);
+
+    store.runtimesUpsert('/tmp/test-app', meta.runtimes);
+    const runtimes = store.runtimesGet('/tmp/test-app');
+    expect(runtimes).toHaveLength(1);
+    expect(runtimes[0].constraint).toBe('>=18.0.0');
+  });
+
+  it('TC-UT-KS-024: should persist runtimes and dependencies via projectUpsertFull', () => {
+    const meta: ProjectMeta = {
+      name: 'full-app',
+      root_path: '/tmp/full-app',
+      languages: ['typescript'],
+      runtimes: [{ language: 'typescript', constraint: '>=20.0.0', specified_in: 'package.json' }],
+      dependencies: [{ name: 'typescript', version: '5.0.0', dep_type: 'development', language: 'typescript' }],
+    };
+
+    store.projectUpsertFull(meta);
+
+    const full = store.projectGetFull('/tmp/full-app');
+    expect(full).toBeDefined();
+    expect(full!.runtimes).toHaveLength(1);
+    expect(full!.runtimes[0].constraint).toBe('>=20.0.0');
+    expect(full!.dependencies).toHaveLength(1);
+    expect(full!.dependencies[0].name).toBe('typescript');
+  });
+
+  it('TC-UT-KS-023: should store and retrieve project dependencies', () => {
+    const meta: ProjectMeta = {
+      name: 'test-app',
+      root_path: '/tmp/test-app-2',
+      languages: ['typescript'],
+      runtimes: [],
+      dependencies: [{ name: 'typescript', version: '5.0.0', dep_type: 'development', language: 'typescript' }],
+    };
+    store.projectUpsert(meta);
+
+    store.dependenciesUpsert('/tmp/test-app-2', meta.dependencies);
+    const deps = store.dependenciesGet('/tmp/test-app-2');
+    expect(deps).toHaveLength(1);
+    expect(deps[0].name).toBe('typescript');
   });
 });

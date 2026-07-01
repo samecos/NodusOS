@@ -42,11 +42,15 @@ export class FileWatcherImpl implements FileWatcher {
 
       const timer = setTimeout(() => {
         this.pending.delete(fullPath);
-        this.eventBus.emit({
-          kind: 'file:changed',
-          path: fullPath,
-          change_type: changeType,
-        });
+        if (changeType === 'deleted') {
+          this.eventBus.emit({ kind: 'file:deleted', path: fullPath });
+        } else {
+          this.eventBus.emit({
+            kind: 'file:changed',
+            path: fullPath,
+            change_type: changeType,
+          });
+        }
         this.emitter.emit('change', { path: fullPath, changeType });
       }, DEBOUNCE_MS);
 

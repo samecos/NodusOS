@@ -9,6 +9,7 @@ import type { EventBus } from '../shell/event-bus.js';
 import { SystemAudioRecorder } from './audio-recorder.js';
 import { WhisperCliEngine, MockSTTEngine } from './stt-engine.js';
 import { PorcupineWakeWordDetector } from './wake-word-detector.js';
+import { VoiceError } from '../common/errors.js';
 
 export interface VoicePipelineDeps {
   audioRecorder?: import('./audio-recorder.js').AudioRecorder;
@@ -91,7 +92,7 @@ export class SystemVoicePipeline implements VoicePipeline {
   /** 手动触发一次录音 + 转写（供唤醒后调用或测试） */
   async recordAndTranscribe(durationMs = 5000): Promise<string> {
     if (!this.audioRecorder.available()) {
-      throw new Error('Microphone not available');
+      throw new VoiceError(VoiceError.MICROPHONE_NOT_AVAILABLE, 'Microphone not available');
     }
     const audioPath = this.audioRecorder.record(durationMs);
     const text = await this.sttEngine.transcribe(audioPath);

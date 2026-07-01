@@ -166,3 +166,12 @@ export type ChangeScope =
 
 /** 风险级别 */
 export type RiskLevel = 'low' | 'medium' | 'high';
+
+/** 文件索引状态 */
+export interface FileIndexState {
+  file_path: string;
+  checksum: string;
+  symbol_count: number;
+  indexed_at: string;
+  error?: string;
+}

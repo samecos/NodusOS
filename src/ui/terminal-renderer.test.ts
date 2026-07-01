@@ -2,11 +2,15 @@
 // TerminalRenderer 测试
 // ============================================================
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TerminalRenderer } from './terminal-renderer.js';
 
 describe('TerminalRenderer', () => {
-  const renderer = new TerminalRenderer();
+  let renderer: TerminalRenderer;
+
+  beforeEach(() => {
+    renderer = new TerminalRenderer();
+  });
 
   it('should render symbol list', () => {
     const out = renderer.render({
@@ -75,5 +79,47 @@ describe('TerminalRenderer', () => {
   it('should render unparseable error', () => {
     const out = renderer.renderError({ kind: 'unparseable', rawText: 'xyzzy' });
     expect(out).toContain('xyzzy');
+  });
+
+  // TC-UT-UI-001: 卡片创建与列出
+  it('TC-UT-UI-001: should create and list cards', () => {
+    const card = renderer.createCard('c1', 'Results', {
+      kind: 'symbol_list',
+      symbols: [],
+    });
+    expect(card.id).toBe('c1');
+    expect(card.kind).toBe('symbol_list');
+    expect(renderer.listCards()).toHaveLength(1);
+  });
+
+  // TC-UT-UI-002: 关闭卡片
+  it('TC-UT-UI-002: should dismiss cards', () => {
+    renderer.createCard('c2', 'Results', { kind: 'symbol_list', symbols: [] });
+    renderer.dismissCard('c2');
+    expect(renderer.listCards()).toHaveLength(0);
+  });
+
+  // TC-UT-UI-003: 渲染代码片段
+  it('TC-UT-UI-003: should render code snippet placeholder', () => {
+    const out = renderer.renderCodeSnippet('src/a.ts', { start: 10, end: 20 });
+    expect(out).toContain('src/a.ts');
+    expect(out).toContain('10');
+    expect(out).toContain('20');
+  });
+
+  // TC-UT-UI-004: 代码导航输出
+  it('TC-UT-UI-004: should navigate to symbol', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    renderer.navigateToSymbol('src/a.ts', 42, 3);
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  // TC-UT-UI-005: 呼吸灯状态
+  it('TC-UT-UI-005: should set breath light state', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    renderer.setBreathLight('thinking');
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
   });
 });

@@ -1,61 +1,71 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+// ============================================================
+// EventBus 单元测试 — TC-UT-EB-001 ~ TC-UT-EB-004
+// ============================================================
+
+import { describe, it, expect } from 'vitest';
 import { SimpleEventBus } from './event-bus.impl.js';
+import type { ProjectOpenedEvent, FileChangedEvent, VoiceTranscribedEvent } from './event-bus.js';
 
-describe('EventBus', () => {
-  let bus: SimpleEventBus;
+describe('SimpleEventBus', () => {
+  // TC-UT-EB-001: 应分发同类型事件给订阅者
+  it('TC-UT-EB-001: should dispatch events to subscribers', () => {
+    const bus = new SimpleEventBus();
+    const received: ProjectOpenedEvent[] = [];
 
-  beforeEach(() => {
-    bus = new SimpleEventBus();
+    bus.on('project:opened', (event) => {
+      received.push(event);
+    });
+
+    const event: ProjectOpenedEvent = {
+      kind: 'project:opened',
+      root: '/tmp/project',
+      meta: {
+        name: 'test',
+        root_path: '/tmp/project',
+        languages: ['typescript'],
+        runtimes: [],
+        dependencies: [],
+      },
+    };
+
+    bus.emit(event);
+    expect(received).toHaveLength(1);
+    expect(received[0]!.root).toBe('/tmp/project');
   });
 
-  it('should deliver events to subscribers', () => {
-    const handler = vi.fn();
-    bus.on('test:event', handler);
+  // TC-UT-EB-002: 取消订阅后不应再收到事件
+  it('TC-UT-EB-002: should allow unsubscribing', () => {
+    const bus = new SimpleEventBus();
+    const received: FileChangedEvent[] = [];
 
-    bus.emit({ kind: 'test:event', payload: 'hello' });
+    const unsubscribe = bus.on('file:changed', (event) => {
+      received.push(event);
+    });
 
-    expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler.mock.calls[0]![0]).toMatchObject({ kind: 'test:event', payload: 'hello' });
+    bus.emit({ kind: 'file:changed', path: 'src/a.ts', change_type: 'modified' });
+    unsubscribe();
+    bus.emit({ kind: 'file:changed', path: 'src/b.ts', change_type: 'created' });
+
+    expect(received).toHaveLength(1);
+    expect(received[0]!.path).toBe('src/a.ts');
   });
 
-  it('should deliver to multiple subscribers', () => {
-    const handlerA = vi.fn();
-    const handlerB = vi.fn();
-    bus.on('test:event', handlerA);
-    bus.on('test:event', handlerB);
+  // TC-UT-EB-003: clear 应移除所有订阅
+  it('TC-UT-EB-003: should clear all subscriptions', () => {
+    const bus = new SimpleEventBus();
+    let count = 0;
 
-    bus.emit({ kind: 'test:event' });
-
-    expect(handlerA).toHaveBeenCalledTimes(1);
-    expect(handlerB).toHaveBeenCalledTimes(1);
-  });
-
-  it('should allow unsubscription', () => {
-    const handler = vi.fn();
-    const unsub = bus.on('test:event', handler);
-    bus.emit({ kind: 'test:event' });
-    expect(handler).toHaveBeenCalledTimes(1);
-    unsub();
-    bus.emit({ kind: 'test:event' });
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
-
-  it('should not cross-trigger different event types', () => {
-    const handler = vi.fn();
-    bus.on('test:event', handler);
-    bus.emit({ kind: 'other:event' });
-    expect(handler).not.toHaveBeenCalled();
-  });
-
-  it('should clear all subscriptions', () => {
-    const handlerA = vi.fn();
-    const handlerB = vi.fn();
-    bus.on('a', handlerA);
-    bus.on('b', handlerB);
+    bus.on('voice:transcribed', () => count++);
+    bus.emit({ kind: 'voice:transcribed', text: 'hello' });
     bus.clear();
-    bus.emit({ kind: 'a' });
-    bus.emit({ kind: 'b' });
-    expect(handlerA).not.toHaveBeenCalled();
-    expect(handlerB).not.toHaveBeenCalled();
+    bus.emit({ kind: 'voice:transcribed', text: 'world' });
+
+    expect(count).toBe(1);
+  });
+
+  // TC-UT-EB-004: 未订阅事件应静默忽略
+  it('TC-UT-EB-004: should ignore events with no subscribers', () => {
+    const bus = new SimpleEventBus();
+    expect(() => bus.emit({ kind: 'voice:transcribed', text: 'test' })).not.toThrow();
   });
 });

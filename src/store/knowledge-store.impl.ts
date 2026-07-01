@@ -10,88 +10,10 @@ import type {
   CallGraph, CallDirection,
   ProjectMeta, QueryHistoryEntry,
   PackageManager,
+  FileIndexState, RuntimeRequirement, Dependency,
 } from '../common/types.js';
 import type { KnowledgeStore } from './knowledge-store.js';
-
-const SCHEMA_SQL = `
-  CREATE TABLE IF NOT EXISTS symbols (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    language TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    line_start INTEGER NOT NULL,
-    line_end INTEGER NOT NULL,
-    col_start INTEGER NOT NULL,
-    col_end INTEGER NOT NULL,
-    parent_id TEXT,
-    is_exported INTEGER NOT NULL DEFAULT 0,
-    signature TEXT,
-    doc_comment TEXT,
-    file_checksum TEXT NOT NULL DEFAULT '',
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS refs (
-    id TEXT PRIMARY KEY,
-    source_symbol_id TEXT NOT NULL,
-    target_symbol_id TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    line INTEGER NOT NULL,
-    col INTEGER NOT NULL,
-    kind TEXT NOT NULL,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS callgraphs (
-    symbol_id TEXT NOT NULL,
-    direction TEXT NOT NULL,
-    max_depth INTEGER NOT NULL,
-    data TEXT NOT NULL,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (symbol_id, direction, max_depth)
-  );
-
-  CREATE TABLE IF NOT EXISTS projects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    root_path TEXT UNIQUE NOT NULL,
-    name TEXT NOT NULL,
-    languages TEXT NOT NULL,
-    runtimes TEXT NOT NULL DEFAULT '[]',
-    package_manager TEXT,
-    dependencies TEXT NOT NULL DEFAULT '[]',
-    framework TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS preferences (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS query_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    raw_text TEXT NOT NULL,
-    intent_type TEXT,
-    entities TEXT,
-    context_file TEXT,
-    context_symbol TEXT,
-    confidence REAL,
-    latency_ms INTEGER,
-    result_count INTEGER,
-    timestamp TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
-  CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_path);
-  CREATE INDEX IF NOT EXISTS idx_symbols_kind ON symbols(kind);
-  CREATE INDEX IF NOT EXISTS idx_refs_target ON refs(target_symbol_id);
-  CREATE INDEX IF NOT EXISTS idx_refs_source ON refs(source_symbol_id);
-  CREATE INDEX IF NOT EXISTS idx_refs_file ON refs(file_path);
-  CREATE INDEX IF NOT EXISTS idx_query_hist_time ON query_history(timestamp);
-`;
+import { MigrationRunner } from './migrations.js';
 
 export class SqliteKnowledgeStore implements KnowledgeStore {
   private db: DatabaseType;
@@ -99,7 +21,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
   constructor(path: string) {
     this.db = new Database(path);
     this.db.pragma('journal_mode = WAL');
-    this.db.exec(SCHEMA_SQL);
+    new MigrationRunner(this.db).run();
   }
 
   // ========== 符号操作 ==========
@@ -219,6 +141,13 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
     return result.changes;
   }
 
+  refsFindByFile(filePath: string): Reference[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM refs WHERE file_path = ? ORDER BY line, col'
+    ).all(filePath) as Record<string, unknown>[];
+    return rows.map(this.rowToRef);
+  }
+
   refsFindByTarget(symbolId: SymbolId): Reference[] {
     const rows = this.db.prepare(
       'SELECT * FROM refs WHERE target_symbol_id = ?'
@@ -255,6 +184,31 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
     this.db.prepare("DELETE FROM callgraphs WHERE data LIKE ?").run(`%${_filePath}%`);
   }
 
+  // ========== 文件索引状态 ==========
+
+  fileStateGet(filePath: string): FileIndexState | undefined {
+    const row = this.db.prepare('SELECT * FROM file_index_state WHERE file_path = ?').get(filePath) as Record<string, unknown> | undefined;
+    if (!row) return undefined;
+    return {
+      file_path: row.file_path as string,
+      checksum: row.checksum as string,
+      symbol_count: row.symbol_count as number,
+      indexed_at: row.indexed_at as string,
+      error: (row.error as string | undefined) ?? undefined,
+    } satisfies FileIndexState;
+  }
+
+  fileStateUpsert(state: FileIndexState): void {
+    this.db.prepare(`
+      INSERT OR REPLACE INTO file_index_state (file_path, checksum, symbol_count, indexed_at, error)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(state.file_path, state.checksum, state.symbol_count, state.indexed_at, state.error ?? null);
+  }
+
+  fileStateRemove(filePath: string): void {
+    this.db.prepare('DELETE FROM file_index_state WHERE file_path = ?').run(filePath);
+  }
+
   // ========== 项目 ==========
 
   projectGet(path: string): ProjectMeta | undefined {
@@ -271,6 +225,16 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
     } satisfies ProjectMeta;
   }
 
+  projectGetFull(path: string): ProjectMeta | undefined {
+    const meta = this.projectGet(path);
+    if (!meta) return undefined;
+    return {
+      ...meta,
+      runtimes: this.runtimesGet(path),
+      dependencies: this.dependenciesGet(path),
+    };
+  }
+
   projectUpsert(meta: ProjectMeta): void {
     this.db.prepare(`
       INSERT OR REPLACE INTO projects (root_path, name, languages, runtimes, package_manager, dependencies, framework)
@@ -285,6 +249,12 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
     );
   }
 
+  projectUpsertFull(meta: ProjectMeta): void {
+    this.projectUpsert(meta);
+    this.runtimesUpsert(meta.root_path, meta.runtimes);
+    this.dependenciesUpsert(meta.root_path, meta.dependencies);
+  }
+
   projectList(): ProjectMeta[] {
     const rows = this.db.prepare('SELECT * FROM projects').all() as Record<string, unknown>[];
     return rows.map(row => ({
@@ -296,6 +266,88 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
       dependencies: JSON.parse(row.dependencies as string),
       framework: (row.framework as ProjectMeta['framework']),
     } satisfies ProjectMeta));
+  }
+
+  // ========== 项目运行时 ==========
+
+  private projectIdByPath(projectPath: string): number | undefined {
+    const row = this.db.prepare('SELECT id FROM projects WHERE root_path = ?').get(projectPath) as { id: number } | undefined;
+    return row?.id;
+  }
+
+  runtimesGet(projectPath: string): RuntimeRequirement[] {
+    const projectId = this.projectIdByPath(projectPath);
+    if (!projectId) return [];
+
+    const rows = this.db.prepare(
+      'SELECT language, version_constraint, installed_version, specified_in FROM project_runtimes WHERE project_id = ?'
+    ).all(projectId) as Record<string, unknown>[];
+
+    return rows.map(row => ({
+      language: row.language as RuntimeRequirement['language'],
+      constraint: row.version_constraint as string,
+      specified_in: row.specified_in as string,
+    } satisfies RuntimeRequirement));
+  }
+
+  runtimesUpsert(projectPath: string, runtimes: RuntimeRequirement[]): void {
+    const projectId = this.projectIdByPath(projectPath);
+    if (!projectId) {
+      throw new Error(`Project not found: ${projectPath}`);
+    }
+
+    const insert = this.db.prepare(`
+      INSERT OR REPLACE INTO project_runtimes
+        (project_id, language, version_constraint, installed_version, specified_in)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+
+    const tx = this.db.transaction((items: RuntimeRequirement[]) => {
+      for (const r of items) {
+        insert.run(projectId, r.language, r.constraint, null, r.specified_in);
+      }
+    });
+
+    tx(runtimes);
+  }
+
+  // ========== 项目依赖 ==========
+
+  dependenciesGet(projectPath: string): Dependency[] {
+    const projectId = this.projectIdByPath(projectPath);
+    if (!projectId) return [];
+
+    const rows = this.db.prepare(
+      'SELECT name, version, dep_type, language FROM project_dependencies WHERE project_id = ?'
+    ).all(projectId) as Record<string, unknown>[];
+
+    return rows.map(row => ({
+      name: row.name as string,
+      version: row.version as string,
+      dep_type: row.dep_type as Dependency['dep_type'],
+      language: row.language as Dependency['language'],
+    } satisfies Dependency));
+  }
+
+  dependenciesUpsert(projectPath: string, dependencies: Dependency[]): void {
+    const projectId = this.projectIdByPath(projectPath);
+    if (!projectId) {
+      throw new Error(`Project not found: ${projectPath}`);
+    }
+
+    const insert = this.db.prepare(`
+      INSERT OR REPLACE INTO project_dependencies
+        (project_id, name, version, dep_type, language)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+
+    const tx = this.db.transaction((items: Dependency[]) => {
+      for (const d of items) {
+        insert.run(projectId, d.name, d.version, d.dep_type, d.language);
+      }
+    });
+
+    tx(dependencies);
   }
 
   // ========== 偏好 ==========
@@ -320,8 +372,8 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 
   historyRecord(entry: QueryHistoryEntry): void {
     this.db.prepare(`
-      INSERT INTO query_history (raw_text, intent_type, entities, context_file, context_symbol, confidence, latency_ms, result_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO query_history (raw_text, intent_type, entities, context_file, context_symbol, confidence, latency_ms, result_count, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       entry.raw_text,
       entry.intent_type ?? null,
@@ -331,6 +383,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
       entry.confidence ?? null,
       entry.latency_ms,
       entry.result_count,
+      entry.timestamp ?? new Date().toISOString(),
     );
   }
 
@@ -349,6 +402,20 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
       result_count: row.result_count as number,
       timestamp: row.timestamp as string,
     }));
+  }
+
+  historyCleanup(beforeDate?: string): number {
+    const cutoff = beforeDate ?? this.daysAgoIso(90);
+    const result = this.db.prepare(
+      "DELETE FROM query_history WHERE timestamp < ?"
+    ).run(cutoff);
+    return result.changes;
+  }
+
+  private daysAgoIso(days: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() - days);
+    return d.toISOString();
   }
 
   // ========== 生命周期 ==========

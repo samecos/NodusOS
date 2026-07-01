@@ -23,12 +23,9 @@ import type { FileWatcher } from '../file-watcher/file-watcher.js';
 import type { IntentEngine, QueryIntent } from '../intent/intent-engine.js';
 import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { VoicePipeline } from '../voice/voice-pipeline.js';
+import type { NodusConfig } from '../common/config.js';
 
-export interface NodusConfig {
-  projectPaths: string[];
-  dbPath?: string;
-  locale?: string;
-}
+export { type NodusConfig } from '../common/config.js';
 
 export class NodusShell {
   readonly eventBus: EventBus;
@@ -111,8 +108,14 @@ export class NodusShell {
     console.log(`[Nodus] Opening project: ${projectPath}`);
 
     try {
-      // 检测项目
-      const meta = await this.envMgr.detectProject(projectPath);
+      // 优先从 store 读取已持久化的项目元数据
+      let meta = this.store.projectGetFull(projectPath);
+
+      if (!meta) {
+        // 检测项目并持久化
+        meta = await this.envMgr.detectProject(projectPath);
+        this.store.projectUpsertFull(meta);
+      }
 
       // 发送事件
       this.eventBus.emit({ kind: 'project:opened', root: projectPath, meta });
@@ -153,6 +156,8 @@ export class NodusShell {
   }
 
   async handleQuery(text: string): Promise<unknown> {
+    this.eventBus.emit({ kind: 'query:received', text });
+
     const context = this.contextMgr.snapshot();
     const result = this.intentEngine.parse(
       { source: 'text', text, locale: this.config.locale ?? 'zh-CN' },
@@ -166,6 +171,7 @@ export class NodusShell {
 
     this.contextMgr.recordQuery(text, result.intentType);
     const queryResult = await this.codeIntel.query(result);
+    this.eventBus.emit({ kind: 'query:result', result: queryResult });
 
     // 记录查询历史
     this.store.historyRecord({
@@ -181,6 +187,8 @@ export class NodusShell {
   }
 
   async handleQueryFormatted(text: string): Promise<string> {
+    this.eventBus.emit({ kind: 'query:received', text });
+
     const context = this.contextMgr.snapshot();
     const result = this.intentEngine.parse(
       { source: 'text', text, locale: this.config.locale ?? 'zh-CN' },
@@ -195,6 +203,7 @@ export class NodusShell {
     const intent = result as QueryIntent;
     this.contextMgr.recordQuery(text, intent.intentType);
     const queryResult = await this.codeIntel.query(intent);
+    this.eventBus.emit({ kind: 'query:result', result: queryResult });
 
     // 记录查询历史
     this.store.historyRecord({
@@ -243,21 +252,24 @@ export class NodusShell {
   private registerEventRoutes(): void {
     // File changes → incremental index
     this.eventBus.on('file:changed', (event) => {
-      const path = event.path as string;
-      const changeType = event.change_type as string;
-      if (changeType !== 'deleted') {
-        this.codeIntel.indexFile(path).catch(console.error);
-      } else {
-        this.store.symbolsRemove(path);
-        this.store.refsRemoveForFile(path);
-      }
+      this.codeIntel.indexFile(event.path).catch(console.error);
     });
 
-    // File deleted
+    // File deleted → 清理索引
     this.eventBus.on('file:deleted', (event) => {
-      const path = event.path as string;
-      this.store.symbolsRemove(path);
-      this.store.refsRemoveForFile(path);
+      this.store.symbolsRemove(event.path);
+      this.store.refsRemoveForFile(event.path);
+      this.store.fileStateRemove(event.path);
+    });
+
+    // 查询事件 → 可扩展为 UI 更新、历史记录等
+    this.eventBus.on('query:received', (_event) => {
+      // 实际查询处理在 handleQuery / handleQueryFormatted 中完成
+    });
+
+    // 错误事件 → 统一日志与降级提示
+    this.eventBus.on('error', (event) => {
+      console.error(`[Nodus] Error from ${event.module}: ${event.error.message} (${event.error.code})`);
     });
   }
 }

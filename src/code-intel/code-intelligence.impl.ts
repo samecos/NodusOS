@@ -13,6 +13,7 @@ import type {
   RiskLevel,
 } from '../common/types.js';
 import type { LanguageParser } from './language-parser.js';
+import { CodeIntelError } from '../common/errors.js';
 import type {
   CodeIntelligence, IndexReport, FileIndexResult,
   ImpactReport, ChangeRecord, QueryIntent, QueryResult, ChangeScope,
@@ -86,21 +87,45 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
         if (!parser) continue;
 
         const source = readFileSync(file, 'utf-8');
-        const symbols = parser.parseSymbols(source, file);
-        const refs = parser.parseReferences(source, symbols);
-        const callEdges = parser.parseCallEdges(source, symbols);
+        const checksum = this.computeChecksum(source);
+        const existing = this.store.fileStateGet(file);
 
-        // 填充引用中的 source 信息：根据引用所在位置找到包含它的函数/方法/类
-        for (const ref of refs) {
-          const enclosing = this.findEnclosingSymbol(ref.location.file_path, ref.location.line_start, allSymbols)
-            ?? this.findEnclosingSymbol(ref.location.file_path, ref.location.line_start, symbols);
-          if (enclosing) {
-            ref.source_symbol_id = enclosing.id;
+        let symbols: Symbol[];
+        let refs: Reference[];
+        let isSkipped = false;
+
+        if (existing && existing.checksum === checksum && !existing.error) {
+          // 文件未变化：从 store 复用已有解析结果
+          symbols = this.store.symbolsFindByFile(file);
+          refs = this.store.refsFindByFile(file);
+          isSkipped = true;
+        } else {
+          // 文件变化或首次索引：删除旧数据并重新解析
+          this.store.symbolsRemove(file);
+          this.store.refsRemoveForFile(file);
+
+          symbols = parser.parseSymbols(source, file);
+          refs = parser.parseReferences(source, symbols);
+
+          // 填充引用中的 source 信息：根据引用所在位置找到包含它的函数/方法/类
+          for (const ref of refs) {
+            const enclosing = this.findEnclosingSymbol(ref.location.file_path, ref.location.line_start, allSymbols)
+              ?? this.findEnclosingSymbol(ref.location.file_path, ref.location.line_start, symbols);
+            if (enclosing) {
+              ref.source_symbol_id = enclosing.id;
+            }
           }
-        }
 
-        this.store.symbolsUpsert(symbols);
-        this.store.refsUpsert(refs);
+          this.store.symbolsUpsert(symbols);
+          this.store.refsUpsert(refs);
+
+          this.store.fileStateUpsert({
+            file_path: file,
+            checksum,
+            symbol_count: symbols.length,
+            indexed_at: new Date().toISOString(),
+          });
+        }
 
         allSymbols.push(...symbols);
         allRefs.push(...refs);
@@ -110,6 +135,27 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
       } catch (err) {
         report.filesFailed++;
         report.errors.push({ file, error: String(err) });
+
+        // 记录失败状态，避免在文件未改变前反复重试
+        try {
+          const source = readFileSync(file, 'utf-8');
+          this.store.fileStateUpsert({
+            file_path: file,
+            checksum: this.computeChecksum(source),
+            symbol_count: 0,
+            indexed_at: new Date().toISOString(),
+            error: String(err),
+          });
+        } catch {
+          // 如果连读取都失败，只记录错误
+          this.store.fileStateUpsert({
+            file_path: file,
+            checksum: '',
+            symbol_count: 0,
+            indexed_at: new Date().toISOString(),
+            error: String(err),
+          });
+        }
       }
     }
 
@@ -156,17 +202,30 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
   async indexFile(filePath: string): Promise<FileIndexResult> {
     const startTime = Date.now();
     const lang = this.detectLanguage(filePath);
-    if (!lang) throw new Error(`Unsupported file: ${filePath}`);
+    if (!lang) throw new CodeIntelError(CodeIntelError.UNSUPPORTED_FILE, `Unsupported file: ${filePath}`);
 
     const parser = this.parsers.get(lang);
-    if (!parser) throw new Error(`No parser for: ${lang}`);
+    if (!parser) throw new CodeIntelError(CodeIntelError.NO_PARSER, `No parser for: ${lang}`);
+
+    const source = readFileSync(filePath, 'utf-8');
+    const checksum = this.computeChecksum(source);
+
+    // 增量索引：checksum 未变化且上次无错误，直接跳过
+    const existing = this.store.fileStateGet(filePath);
+    if (existing && existing.checksum === checksum && !existing.error) {
+      return {
+        symbolsAdded: 0,
+        symbolsRemoved: 0,
+        referencesUpdated: 0,
+        durationMs: Date.now() - startTime,
+      };
+    }
 
     // 删除旧数据
     const removed = this.store.symbolsRemove(filePath);
     this.store.refsRemoveForFile(filePath);
 
     // 重新解析
-    const source = readFileSync(filePath, 'utf-8');
     const symbols = parser.parseSymbols(source, filePath);
     const refs = parser.parseReferences(source, symbols);
 
@@ -176,6 +235,14 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
 
     // 重建调用图
     this.store.callgraphRebuildForFile(filePath);
+
+    // 更新文件索引状态
+    this.store.fileStateUpsert({
+      file_path: filePath,
+      checksum,
+      symbol_count: symbols.length,
+      indexed_at: new Date().toISOString(),
+    });
 
     return {
       symbolsAdded: added,
@@ -438,6 +505,10 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
 
     await walk(root);
     return files;
+  }
+
+  private computeChecksum(source: string): string {
+    return createHash('sha256').update(source).digest('hex');
   }
 
   private detectLanguage(filePath: string): Language | null {
