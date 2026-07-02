@@ -400,4 +400,21 @@ refund_order(100)
       expect(ref.location.file_path).toBe(customPath);
     }
   });
+
+  // TC-UT-CI-030: Python class 继承产生 inheritance 引用
+  it('TC-UT-CI-030: Python class inheritance emits inheritance reference', () => {
+    const source = `
+class Base:
+    pass
+
+class Derived(Base):
+    pass
+`;
+    const pyParser = new PythonParser();
+    const symbols = pyParser.parseSymbols(source, 'src/models.py');
+    const refs = pyParser.parseReferences(source, symbols);
+    const inheritRefs = refs.filter(r => r.kind === 'inheritance');
+    expect(inheritRefs.length).toBeGreaterThanOrEqual(1);
+    expect(inheritRefs[0]!.target_symbol_id).toBe(symbols.find(s => s.name === 'Base')!.id);
+  });
 });

@@ -203,6 +203,34 @@ export class PythonParser implements LanguageParser {
       }
     }
 
+    // class 继承: class Derived(Base)
+    if (node.type === 'class_definition') {
+      const classNameNode = node.childForFieldName?.('name');
+      const className = classNameNode?.text;
+      const basesNode = node.childForFieldName?.('superclasses');
+      if (basesNode && className) {
+        for (const base of basesNode.namedChildren) {
+          const name = base.type === 'identifier' ? base.text
+            : base.type === 'attribute' ? (base.childForFieldName?.('attribute')?.text ?? base.text)
+            : base.text;
+          const target = symbolMap.get(name);
+          refs.push({
+            id: `py_inherit_${className}_${name}_${base.startPosition.row + 1}`,
+            source_symbol_id: '',
+            target_symbol_id: target?.id ?? `py:${name}`,
+            location: {
+              file_path: filePath,
+              line_start: base.startPosition.row + 1,
+              line_end: base.endPosition.row + 1,
+              col_start: base.startPosition.column + 1,
+              col_end: base.endPosition.column + 1,
+            },
+            kind: 'inheritance',
+          });
+        }
+      }
+    }
+
     for (const child of node.namedChildren) {
       this.walkForRefs(child, source, filePath, symbolMap, refs);
     }
