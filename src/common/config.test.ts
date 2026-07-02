@@ -112,6 +112,9 @@ describe('JsonConfigManager', () => {
     const changes: import('./config.js').NodusConfig[] = [];
     manager.onChange((cfg) => changes.push(cfg));
 
+    // fs.watch 在 macOS 上需要短暂时间完成注册，等待后再操作文件以保证事件可达
+    await wait(50);
+
     // 模拟启动时配置文件不存在（constructor 会自动创建默认配置，需先移除）
     rmSync(configPath, { force: true });
     expect(existsSync(configPath)).toBe(false);
@@ -132,6 +135,9 @@ describe('JsonConfigManager', () => {
     const changes: string[] = [];
     manager.onChange((cfg) => changes.push(cfg.locale));
 
+    // fs.watch 在 macOS 上需要短暂时间完成注册，等待后再操作文件以保证事件可达
+    await wait(50);
+
     writeFileSync(configPath, JSON.stringify({ locale: 'fr-FR' }, null, 2));
     await wait(250);
 
@@ -146,6 +152,9 @@ describe('JsonConfigManager', () => {
     const manager = new JsonConfigManager(configPath);
     const changes: string[] = [];
     manager.onChange((cfg) => changes.push(cfg.locale));
+
+    // fs.watch 在 macOS 上需要短暂时间完成注册，等待后再操作文件以保证事件可达
+    await wait(50);
 
     for (let i = 0; i < 5; i++) {
       writeFileSync(configPath, JSON.stringify({ locale: `locale-${i}` }, null, 2));

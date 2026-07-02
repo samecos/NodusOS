@@ -69,6 +69,7 @@ export class JsonConfigManager implements ConfigManager {
   private configPath: string;
   private listeners = new Set<(config: NodusConfig) => void>();
   private watcher?: FSWatcher;
+  private watchingFile = false;
   private debounceTimer?: ReturnType<typeof setTimeout>;
   private readonly debounceMs = 100;
 
@@ -132,29 +133,64 @@ export class JsonConfigManager implements ConfigManager {
       this.watcher.close();
       this.watcher = undefined;
     }
+    this.watchingFile = false;
   }
 
   private watchConfig(): void {
-    this.stopWatching();
-
-    const onEvent = (eventType: string, filename: string | null): void => {
-      if (filename !== null && filename !== basename(this.configPath)) return;
-      this.debouncedReload();
-    };
-
-    // 始终监听配置文件所在目录，可可靠捕获文件创建、修改、删除/重命名
-    const dir = dirname(this.configPath);
-    if (existsSync(dir)) {
-      this.watcher = watch(dir, (eventType, filename) => {
-        onEvent(eventType, filename);
-      });
+    if (existsSync(this.configPath)) {
+      this.watchFile();
+    } else {
+      this.watchDirectory();
     }
+  }
+
+  private watchFile(): void {
+    if (this.watchingFile) return;
+    this.stopWatching();
+    try {
+      this.watcher = watch(this.configPath, () => this.debouncedReload());
+      this.watcher.on('error', (err) => this.handleWatcherError(err));
+      this.watchingFile = true;
+    } catch (err) {
+      console.error(`[Config] Failed to watch file ${this.configPath}: ${err}`);
+      this.watchingFile = false;
+    }
+  }
+
+  private watchDirectory(): void {
+    if (!this.watchingFile && this.watcher) return; // 已在目录监听模式
+    this.stopWatching();
+    const dir = dirname(this.configPath);
+    if (!existsSync(dir)) return;
+    try {
+      this.watcher = watch(dir, (eventType, filename) => {
+        if (filename !== null && filename !== basename(this.configPath)) return;
+        this.debouncedReload();
+      });
+      this.watcher.on('error', (err) => this.handleWatcherError(err));
+    } catch (err) {
+      console.error(`[Config] Failed to watch directory ${dir}: ${err}`);
+    }
+  }
+
+  private handleWatcherError(err: Error): void {
+    console.error(`[Config] Watcher error: ${err.message}`);
+    this.watcher = undefined;
+    this.watchingFile = false;
+    this.watchDirectory();
   }
 
   private debouncedReload(): void {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
+      if (!existsSync(this.configPath)) {
+        // 配置被删除或重命名，切回目录监听，保持当前配置不变，避免 reload() 重新创建文件
+        this.watchDirectory();
+        return;
+      }
       this.reload();
+      // 文件已存在，切换到文件级监听以减少同目录其他文件变更的干扰
+      this.watchFile();
     }, this.debounceMs);
   }
 
@@ -181,8 +217,7 @@ export class JsonConfigManager implements ConfigManager {
   }
 
   private ensureDir(): void {
-    const dir = this.configPath.split('/').slice(0, -1).join('/') || '.';
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(dirname(this.configPath), { recursive: true });
   }
 
   private mergeWithDefaults(overrides: Partial<NodusConfig>): NodusConfig {

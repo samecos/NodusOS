@@ -50,6 +50,7 @@ export class NodusShell {
     this.eventBus = new SimpleEventBus();
 
     // 订阅配置变更，保持 this.config 最新并转发到事件总线
+    // 注意：projectPaths 变更不会动态重新加载已打开的项目，仅 locale 等查询时字段即时生效
     this.unsubscribeConfig = configManager.onChange((cfg) => {
       this.config = cfg;
       this.eventBus.emit({ kind: 'config:changed', config: cfg });
