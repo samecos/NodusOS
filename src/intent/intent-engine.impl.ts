@@ -474,11 +474,11 @@ export class PatternIntentEngine implements IntentEngine {
     return undefined;
   }
 
-  private extractRelationshipKind(text: string): 'subclass' | 'implementation' | 'type_use' | undefined {
+  private extractRelationshipKind(text: string): 'subclasses' | 'implementations' | 'type_uses' | undefined {
     const lower = text.toLowerCase();
-    if (/实现|implements?/.test(lower)) return 'implementation';
-    if (/继承|extends?|子类|subclasses?/.test(lower)) return 'subclass';
-    if (/使用|uses?|引用|type\s+uses?/.test(lower)) return 'type_use';
+    if (/实现|implements?/.test(lower)) return 'implementations';
+    if (/继承|extends?|子类|subclasses?/.test(lower)) return 'subclasses';
+    if (/使用|uses?|引用|type\s+uses?/.test(lower)) return 'type_uses';
     return undefined;
   }
 }

@@ -165,14 +165,14 @@ describe('IntentEngine', () => {
 
   const emptyContext = makeCtx();
 
-  // TC-UT-IE-XXX: type_relationships 实现关系
-  it('TC-UT-IE-XXX: should parse "who implements IUserService"', () => {
+  // TC-UT-IE-015: type_relationships 实现关系
+  it('TC-UT-IE-015: should parse "who implements IUserService"', () => {
     const result = engine.parse({ source: 'text', text: '谁实现了 IUserService', locale: 'zh-CN' }, emptyContext);
     expect(result).not.toHaveProperty('kind');
     if (!('kind' in result)) {
       expect(result.intentType).toBe('type_relationships');
       expect(result.entities.symbolName).toBe('IUserService');
-      expect(result.entities.relationshipKind).toBe('implementation');
+      expect(result.entities.relationshipKind).toBe('implementations');
     }
   });
 });

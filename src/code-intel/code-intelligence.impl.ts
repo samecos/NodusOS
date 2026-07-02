@@ -626,15 +626,15 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
         let related: Symbol[] = [];
         let relKind: RelationshipKind = 'type_use';
         switch (entities.relationshipKind) {
-          case 'subclass':
+          case 'subclasses':
             related = await this.findSubclasses(root.id);
             relKind = 'subclass';
             break;
-          case 'implementation':
+          case 'implementations':
             related = await this.findImplementations(root.id);
             relKind = 'implementation';
             break;
-          case 'type_use':
+          case 'type_uses':
           default:
             related = await this.findTypeUses(root.id);
             relKind = 'type_use';

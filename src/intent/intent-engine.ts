@@ -29,7 +29,7 @@ export interface IntentEntity {
     modulePath?: string;
   };
   /** 类型关系意图的具体关系类型 */
-  relationshipKind?: 'subclass' | 'implementation' | 'type_use';
+  relationshipKind?: 'subclasses' | 'implementations' | 'type_uses';
 }
 
 export interface QueryIntent {
