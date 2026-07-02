@@ -1,6 +1,8 @@
+import { existsSync, readFileSync } from 'node:fs';
 import type { KnowledgeStore } from '../store/knowledge-store.js';
 import type { ImportBinding, Reference, SymbolId } from '../common/types.js';
 import type { ModuleResolver } from './module-resolver.js';
+import { TypeScriptParser } from './parsers/typescript-parser.js';
 
 /** 把引用中的 external:/unknown: 目标解析为 KnowledgeStore 中的真实符号 ID */
 export class ReferenceResolver {
@@ -85,7 +87,21 @@ export class ReferenceResolver {
   }
 
   private resolveReexport(name: string, filePath: string): SymbolId | undefined {
-    // 本 task 先留 stub，Task 5 实现递归 re-export 解析
-    return undefined;
+    if (!existsSync(filePath)) return undefined;
+
+    const source = readFileSync(filePath, 'utf-8');
+    const parser = new TypeScriptParser();
+    const reexports = parser.parseReexports(source, filePath);
+    const target = reexports.find(r => r.name === name);
+    if (!target) return undefined;
+
+    const nextFile = this.moduleResolver.resolve(target.source, filePath);
+    if (!nextFile) return undefined;
+
+    const syms = this.store.symbolsFindByFile(nextFile).filter(s => s.is_exported && s.name === name);
+    if (syms.length > 0) return syms[0].id;
+
+    // 支持多层 re-export 链
+    return this.resolveReexport(name, nextFile);
   }
 }

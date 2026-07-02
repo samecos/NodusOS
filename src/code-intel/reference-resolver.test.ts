@@ -99,4 +99,23 @@ defaultRefund();
     const callRef = refs.find(r => r.kind === 'call')!;
     expect(callRef.target_symbol_id).toBe(refundSym.id);
   });
+
+  it('TC-UT-RR-005: index re-export 解析到原始符号', () => {
+    mkdirSync(join(TMP, 'src', 'utils'), { recursive: true });
+    writeFileSync(join(TMP, 'src', 'utils', 'index.ts'), `export { refundOrder } from '../payment';`);
+    const indexSrc = `export { refundOrder } from '../payment';`;
+    const indexSyms = parser.parseSymbols(indexSrc, join(TMP, 'src', 'utils', 'index.ts'));
+    store.symbolsUpsert(indexSyms);
+
+    const appSrc = `import { refundOrder } from './utils';\nrefundOrder();`;
+    const appSyms = parser.parseSymbols(appSrc, join(TMP, 'src', 'app.ts'));
+    const refs = parser.parseReferences(appSrc, appSyms);
+    const bindings = parser.parseImportBindings(appSrc, join(TMP, 'src', 'app.ts'));
+
+    resolver.resolveFileRefs(join(TMP, 'src', 'app.ts'), refs, bindings);
+
+    const refundSym = store.symbolsFindByFile(join(TMP, 'src', 'payment.ts')).find(s => s.name === 'refundOrder')!;
+    const callRef = refs.find(r => r.kind === 'call')!;
+    expect(callRef.target_symbol_id).toBe(refundSym.id);
+  });
 });
