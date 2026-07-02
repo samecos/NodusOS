@@ -232,7 +232,7 @@ describe('TerminalRenderer', () => {
     expect(out).toContain('2');
   });
 
-  it('TC-UT-TR-XXX: should render type_relationship_list', () => {
+  it('TC-UT-TR-004: should render type_relationship_list', () => {
     const out = renderer.render({
       kind: 'type_relationship_list',
       root: {
