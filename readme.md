@@ -293,7 +293,7 @@ npm test
 
 #### v1.1 基础夯实
 - [x] R1.1 原生二进制兼容性治理（`better-sqlite3` / `tree-sitter` 可正常加载）
-- [ ] R1.2 CodeIntelligence 单元测试与集成测试补全
+- [x] R1.2 CodeIntelligence 单元测试与集成测试补全
 
 #### v1.2 体验增强
 - [ ] R2.1 本地轻量意图模型（BERT-tiny / ONNX，延迟 < 200ms）
