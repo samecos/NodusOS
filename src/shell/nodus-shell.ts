@@ -161,6 +161,22 @@ export class NodusShell {
       });
       await this.fileWatcher.watch(projectPath, exts);
 
+      // 恢复该项目上次会话状态
+      const session = this.store.sessionStateGet(projectPath);
+      if (session?.active_file) {
+        this.contextMgr.update({ kind: 'project_changed', root: projectPath });
+        this.contextMgr.update({ kind: 'file_opened', path: session.active_file });
+        if (session.cursor_line != null && session.cursor_col != null) {
+          this.contextMgr.update({
+            kind: 'cursor_moved',
+            file: session.active_file,
+            line: session.cursor_line,
+            col: session.cursor_col,
+            symbol: session.cursor_symbol,
+          });
+        }
+      }
+
       console.log(`[Nodus] Project ready: ${meta.name} (${meta.languages.join(', ')})`);
     } catch (err) {
       console.error(`[Nodus] Failed to open project: ${err}`);
