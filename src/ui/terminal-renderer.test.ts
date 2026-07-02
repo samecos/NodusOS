@@ -388,4 +388,40 @@ describe('TerminalRenderer', () => {
     const lines = out.replace(/\u001b\[[0-9;]*m/g, '').split('\n');
     expect(lines.some(line => line.includes('callerA') && line.includes('call'))).toBe(true);
   });
+
+  // TC-UT-UI-018: 风险节点应高亮
+  it('TC-UT-UI-018: should highlight risky nodes', () => {
+    const out = renderer.render({
+      kind: 'call_graph',
+      graph: {
+        root_symbol_id: 'root',
+        direction: 'callees',
+        max_depth: 3,
+        nodes: [
+          { symbol_id: 'root', symbol_name: 'main', file_path: 'src/a.ts', line: 1, depth: 0, has_risk: true },
+          { symbol_id: 'child', symbol_name: 'child', file_path: 'src/b.ts', line: 5, depth: 1 },
+        ],
+        edges: [{ from: 'root', to: 'child', kind: 'call' }],
+      },
+    });
+    expect(out).toContain('main');
+    expect(out).toContain('child');
+    // has_risk 标记会触发 ⚠ 输出
+    expect(out).toContain('⚠');
+  });
+
+  // TC-UT-UI-019: 根节点缺失时应优雅降级
+  it('TC-UT-UI-019: should gracefully handle missing root', () => {
+    const out = renderer.render({
+      kind: 'call_graph',
+      graph: {
+        root_symbol_id: 'missing',
+        direction: 'callees',
+        max_depth: 3,
+        nodes: [],
+        edges: [],
+      },
+    });
+    expect(out).toContain('调用图根节点不存在');
+  });
 });

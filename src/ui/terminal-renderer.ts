@@ -218,11 +218,15 @@ export class TerminalRenderer implements UIRenderer {
   }
 
   private renderCallGraph(graph: CallGraph): string {
-    if (graph.nodes.length === 0) return c('调用图为空', DIM);
-
     const nodeMap = new Map<string, CallGraphNode>(
       graph.nodes.map(n => [n.symbol_id, n]),
     );
+
+    const rootId = graph.root_symbol_id;
+    const root = nodeMap.get(rootId);
+    if (!root) return c('调用图根节点不存在', DIM);
+
+    if (graph.nodes.length === 0) return c('调用图为空', DIM);
 
     // 正向邻接表：from -> to（callees 使用）
     const forwardAdj = new Map<string, string[]>();
@@ -234,10 +238,6 @@ export class TerminalRenderer implements UIRenderer {
       if (!reverseAdj.has(edge.to)) reverseAdj.set(edge.to, []);
       reverseAdj.get(edge.to)!.push(edge.from);
     }
-
-    const rootId = graph.root_symbol_id;
-    const root = nodeMap.get(rootId);
-    if (!root) return c('调用图根节点不存在', DIM);
 
     let out = c('\n调用图', BOLD);
     if (graph.direction === 'callers') {
