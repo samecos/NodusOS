@@ -255,4 +255,31 @@ describe('TerminalRenderer', () => {
     expect(out).toContain('UserService');
     expect(out).toContain('实现');
   });
+
+  // TC-UT-UI-013: 调用图同名符号不合并
+  it('TC-UT-UI-013: should not merge nodes with same symbol name', () => {
+    const out = renderer.render({
+      kind: 'call_graph',
+      graph: {
+        root_symbol_id: 'root-a',
+        direction: 'callees',
+        max_depth: 3,
+        nodes: [
+          { symbol_id: 'root-a', symbol_name: 'helper', file_path: 'src/a.ts', line: 1, depth: 0 },
+          { symbol_id: 'child-b', symbol_name: 'helper', file_path: 'src/b.ts', line: 5, depth: 1 },
+          { symbol_id: 'child-c', symbol_name: 'leaf', file_path: 'src/c.ts', line: 10, depth: 2 },
+        ],
+        edges: [
+          { from: 'root-a', to: 'child-b', kind: 'call' },
+          { from: 'child-b', to: 'child-c', kind: 'call' },
+        ],
+      },
+    });
+    expect(out).toContain('a.ts');
+    expect(out).toContain('b.ts');
+    expect(out).toContain('c.ts');
+    // 两个 helper 都应该出现且各自保留位置信息（去掉 ANSI 颜色码后匹配）
+    const matches = out.replace(/\u001b\[[0-9;]*m/g, '').match(/helper\s+\[/g);
+    expect(matches).toHaveLength(2);
+  });
 });

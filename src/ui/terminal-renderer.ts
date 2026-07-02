@@ -5,7 +5,7 @@
 import type { UIRenderer, Card, BreathLightState } from './ui-renderer.js';
 import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { IntentError, QueryIntent } from '../intent/intent-engine.js';
-import type { Symbol, Reference, CallGraph, ProjectMeta } from '../common/types.js';
+import type { Symbol, Reference, CallGraph, CallGraphNode, ProjectMeta } from '../common/types.js';
 import type { ImpactReport, ChangeRecord, TypeRelationship } from '../code-intel/code-intelligence.js';
 import type { SymbolMetric, ModuleCoupling, CallChain, TodoComment } from '../code-intel/code-analytics.js';
 
@@ -220,47 +220,58 @@ export class TerminalRenderer implements UIRenderer {
   private renderCallGraph(graph: CallGraph): string {
     if (graph.nodes.length === 0) return c('调用图为空', DIM);
 
-    let out = c('\n调用图:', BOLD) + '\n';
+    const nodeMap = new Map<string, CallGraphNode>(
+      graph.nodes.map(n => [n.symbol_id, n]),
+    );
 
-    // 构建邻接表
-    const children = new Map<string, string[]>();
+    // 邻接表：symbol_id -> 邻接 symbol_id 列表
+    const adjacency = new Map<string, string[]>();
     for (const edge of graph.edges) {
-      const from = graph.nodes.find(n => n.symbol_id === edge.from);
-      const to = graph.nodes.find(n => n.symbol_id === edge.to);
-      if (from && to) {
-        if (!children.has(from.symbol_name)) children.set(from.symbol_name, []);
-        children.get(from.symbol_name)!.push(to.symbol_name);
-      }
+      if (!adjacency.has(edge.from)) adjacency.set(edge.from, []);
+      adjacency.get(edge.from)!.push(edge.to);
     }
 
-    // 找根节点
-    const allTargets = new Set([...children.values()].flatMap(v => [...v]));
-    const roots = graph.nodes.filter(n => !allTargets.has(n.symbol_name));
+    const rootId = graph.root_symbol_id;
+    const root = nodeMap.get(rootId);
+    if (!root) return c('调用图根节点不存在', DIM);
 
-    function printNode(name: string, depth: number, prefix: string): string {
-      let result = '';
-      const nodeNames = graph.nodes.filter(n => n.symbol_name === name);
-      const node = nodeNames[0];
-      if (node) {
-        const risk = node.has_risk ? c(' ⚠', YELLOW) : '';
-        result += `${prefix}${c(name, BOLD)} ${c(`[${node.file_path.split('/').pop()}:${node.line}]`, DIM)}${risk}\n`;
-      } else {
-        result += `${prefix}${name}\n`;
+    let out = c('\n调用图', BOLD);
+    if (graph.direction === 'callers') {
+      out += c(' （上游调用方）', DIM);
+    } else if (graph.direction === 'callees') {
+      out += c(' （下游被调用方）', DIM);
+    } else {
+      out += c(' （双向）', DIM);
+    }
+    out += `\n${c('最大深度:', DIM)} ${c(String(graph.max_depth), YELLOW)}\n`;
+
+    const visited = new Set<string>();
+
+    const formatNode = (id: string): string => {
+      const n = nodeMap.get(id);
+      if (!n) return c(`[unknown:${id}]`, DIM);
+      const fileName = n.file_path.split('/').pop() ?? n.file_path;
+      const risk = n.has_risk ? c(' ⚠', YELLOW) : '';
+      return `${c(n.symbol_name, BOLD)} ${c(`[${fileName}:${n.line}]`, DIM)}${risk}`;
+    };
+
+    const printTree = (id: string, prefix: string, isLast: boolean): string => {
+      if (visited.has(id)) {
+        return `${prefix}${isLast ? '└─ ' : '├─ '}${formatNode(id)} ${c('(cycle)', RED)}\n`;
       }
+      visited.add(id);
 
-      const kids = children.get(name) ?? [];
+      let result = `${prefix}${isLast ? '└─ ' : '├─ '}${formatNode(id)}\n`;
+      const kids = adjacency.get(id) ?? [];
       for (let i = 0; i < kids.length; i++) {
-        const isLast = i === kids.length - 1;
-        const connector = isLast ? '└─ ' : '├─ ';
+        const childLast = i === kids.length - 1;
         const nextPrefix = prefix + (isLast ? '   ' : '│  ');
-        result += printNode(kids[i]!, depth + 1, prefix + connector);
+        result += printTree(kids[i]!, nextPrefix, childLast);
       }
       return result;
-    }
+    };
 
-    for (const root of roots) {
-      out += printNode(root.symbol_name, 0, '  ');
-    }
+    out += printTree(rootId, '  ', true);
     return out;
   }
 
