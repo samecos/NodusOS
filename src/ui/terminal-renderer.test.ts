@@ -343,8 +343,8 @@ describe('TerminalRenderer', () => {
         edges: [{ from: 'root', to: 'child', kind: 'inheritance' }],
       },
     });
-    expect(out).toContain('inheritance');
-    expect(out).toContain('Child');
+    const lines = out.replace(/\u001b\[[0-9;]*m/g, '').split('\n');
+    expect(lines.some(line => line.includes('Child') && line.includes('inheritance'))).toBe(true);
   });
 
   // TC-UT-UI-017: 超过 max_depth 应显示截断提示
@@ -366,6 +366,26 @@ describe('TerminalRenderer', () => {
         ],
       },
     });
-    expect(out).toContain('已截断');
+    const lines = out.replace(/\u001b\[[0-9;]*m/g, '').split('\n');
+    expect(lines.some(line => line.includes('child') && line.includes('已截断'))).toBe(true);
+  });
+
+  // TC-UT-UI-020: callers 方向应正确标注反向边类型
+  it('TC-UT-UI-020: should label edge kinds for callers direction', () => {
+    const out = renderer.render({
+      kind: 'call_graph',
+      graph: {
+        root_symbol_id: 'target',
+        direction: 'callers',
+        max_depth: 3,
+        nodes: [
+          { symbol_id: 'caller-a', symbol_name: 'callerA', file_path: 'src/a.ts', line: 1, depth: 1 },
+          { symbol_id: 'target', symbol_name: 'targetFn', file_path: 'src/b.ts', line: 5, depth: 0 },
+        ],
+        edges: [{ from: 'caller-a', to: 'target', kind: 'call' }],
+      },
+    });
+    const lines = out.replace(/\u001b\[[0-9;]*m/g, '').split('\n');
+    expect(lines.some(line => line.includes('callerA') && line.includes('call'))).toBe(true);
   });
 });
