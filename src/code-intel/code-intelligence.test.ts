@@ -156,6 +156,48 @@ const service = new PaymentService();
     expect(instantiations.map(r => r.target_symbol_id)).toContain(serviceClass.id);
   });
 
+  // TC-UT-CI-022: 提取 interface 符号
+  it('TC-UT-CI-022: should extract interface symbol', () => {
+    const source = `
+export interface RefundResult {
+  status: string;
+  amount: number;
+}
+`;
+    const symbols = parser.parseSymbols(source, 'src/types.ts');
+    const iface = symbols.find(s => s.name === 'RefundResult');
+    expect(iface).toBeDefined();
+    expect(iface!.kind).toBe('interface');
+    expect(iface!.is_exported).toBe(true);
+  });
+
+  // TC-UT-CI-023: 提取 type alias 符号
+  it('TC-UT-CI-023: should extract type alias symbol', () => {
+    const source = `
+export type OrderId = string;
+`;
+    const symbols = parser.parseSymbols(source, 'src/types.ts');
+    const typeAlias = symbols.find(s => s.name === 'OrderId');
+    expect(typeAlias).toBeDefined();
+    expect(typeAlias!.kind).toBe('type');
+    expect(typeAlias!.is_exported).toBe(true);
+  });
+
+  // TC-UT-CI-024: 提取 enum 符号
+  it('TC-UT-CI-024: should extract enum symbol', () => {
+    const source = `
+export enum RefundStatus {
+  Pending = 'pending',
+  Completed = 'completed',
+}
+`;
+    const symbols = parser.parseSymbols(source, 'src/types.ts');
+    const enumSym = symbols.find(s => s.name === 'RefundStatus');
+    expect(enumSym).toBeDefined();
+    expect(enumSym!.kind).toBe('enum');
+    expect(enumSym!.is_exported).toBe(true);
+  });
+
   // TC-UT-CI-020: 识别装饰器引用
   it('TC-UT-CI-020: should extract decorator references', () => {
     const source = `

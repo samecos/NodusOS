@@ -303,6 +303,7 @@ export class TypeScriptParser implements LanguageParser {
       case 'class_declaration': return 'class';
       case 'interface_declaration': return 'interface';
       case 'type_alias_declaration': return 'type';
+      case 'enum_declaration': return 'enum';
       case 'variable_declarator': {
         const hasArrowFn = node.namedChildren.some(
           c => c.type === 'arrow_function' || c.type === 'function_expression'

@@ -15,6 +15,7 @@ export type SymbolKind =
   | 'class'
   | 'interface'
   | 'type'
+  | 'enum'
   | 'variable'
   | 'parameter'
   | 'module'
