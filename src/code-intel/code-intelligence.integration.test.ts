@@ -480,3 +480,48 @@ export function helperB(): string { return 'b'; }
     expect(names).toContain('helperB');
   });
 });
+
+// TC-IT-CI-KS-020: indexFile 后调用 callGraph 应正确返回调用边
+describe('CodeIntelligence callGraph after indexFile', () => {
+  const tmpDir = join(tmpdir(), `nodus-callgraph-after-indexfile-test-${Date.now()}`);
+  let store: KnowledgeStore;
+  let ci: CodeIntelligence;
+
+  beforeAll(async () => {
+    mkdirSync(join(tmpDir, 'src'), { recursive: true });
+    writeFileSync(join(tmpDir, 'src', 'a.ts'), `
+export function a(): string { return b(); }
+function b(): string { return 'b'; }
+`);
+    writeFileSync(join(tmpDir, 'package.json'), JSON.stringify({ name: 'callgraph-after-indexfile-test' }));
+
+    store = new SqliteKnowledgeStore(':memory:');
+    ci = new CodeIntelligenceImpl(store);
+    await ci.indexProject(tmpDir, ['typescript']);
+  });
+
+  afterAll(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('TC-IT-CI-KS-020: should build call graph after re-indexing via indexFile', async () => {
+    // 通过 indexFile 重新索引（即使内容未变，也会走增量索引路径）
+    const result = await ci.indexFile(join(tmpDir, 'src', 'a.ts'));
+    expect(result.symbolsAdded + result.symbolsRemoved).toBeGreaterThanOrEqual(0);
+
+    const syms = await ci.findSymbol('a');
+    expect(syms.length).toBeGreaterThanOrEqual(1);
+    const fnA = syms.find(s => s.name === 'a')!;
+
+    const graph = await ci.callGraph(fnA.id, 'callees', 2);
+    expect(graph).not.toBeNull();
+
+    const edge = graph!.edges.find(e => e.from === fnA.id);
+    expect(edge).toBeDefined();
+
+    const bSym = graph!.nodes.find(n => n.symbol_name === 'b');
+    expect(bSym).toBeDefined();
+    expect(edge!.to).toBe(bSym!.symbol_id);
+  });
+});

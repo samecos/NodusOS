@@ -108,14 +108,7 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
           symbols = parser.parseSymbols(source, file);
           refs = parser.parseReferences(source, symbols);
 
-          // 填充引用中的 source 信息：根据引用所在位置找到包含它的函数/方法/类
-          for (const ref of refs) {
-            const enclosing = this.findEnclosingSymbol(ref.location.file_path, ref.location.line_start, allSymbols)
-              ?? this.findEnclosingSymbol(ref.location.file_path, ref.location.line_start, symbols);
-            if (enclosing) {
-              ref.source_symbol_id = enclosing.id;
-            }
-          }
+          this.enrichRefsWithSource(refs, [...allSymbols, ...symbols]);
 
           this.store.symbolsUpsert(symbols);
           this.store.refsUpsert(refs);
@@ -184,12 +177,6 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
       report.referencesFound += 0; // 不新增引用，仅解析目标
     }
 
-    // 构建全局调用图并存储
-    const callgraph = this.buildGlobalCallGraph(allSymbols, allRefs);
-    if (callgraph) {
-      this.store.callgraphStore(callgraph);
-    }
-
     report.durationMs = Date.now() - startTime;
     this.state = {
       kind: 'ready',
@@ -229,6 +216,8 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
     // 重新解析
     const symbols = parser.parseSymbols(source, filePath);
     const refs = parser.parseReferences(source, symbols);
+
+    this.enrichRefsWithSource(refs, symbols);
 
     // 存储新数据
     const added = this.store.symbolsUpsert(symbols);
@@ -276,7 +265,12 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
     const root = this.store.symbolsFindById(symbolId);
     if (!root) return null;
 
+    // 优先读取调用图缓存
+    const cached = this.store.callgraphGet(symbolId, direction, maxDepth);
+    if (cached) return cached;
+
     const nodeIds = new Set<SymbolId>([symbolId]);
+    const edgeSet = new Set<string>();
     const edges: CallGraphEdge[] = [];
     const visited = new Map<SymbolId, number>();
     const queue: Array<{ id: SymbolId; depth: number }> = [{ id: symbolId, depth: 0 }];
@@ -292,7 +286,11 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
           const targetId = ref.target_symbol_id;
           if (!targetId) continue;
           nodeIds.add(targetId);
-          edges.push({ from: id, to: targetId, kind: ref.kind });
+          const edgeKey = `${id}|${targetId}`;
+          if (!edgeSet.has(edgeKey)) {
+            edgeSet.add(edgeKey);
+            edges.push({ from: id, to: targetId, kind: ref.kind });
+          }
           if (!visited.has(targetId) || visited.get(targetId)! > depth + 1) {
             visited.set(targetId, depth + 1);
             queue.push({ id: targetId, depth: depth + 1 });
@@ -306,7 +304,11 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
           const sourceId = ref.source_symbol_id;
           if (!sourceId) continue;
           nodeIds.add(sourceId);
-          edges.push({ from: sourceId, to: id, kind: ref.kind });
+          const edgeKey = `${sourceId}|${id}`;
+          if (!edgeSet.has(edgeKey)) {
+            edgeSet.add(edgeKey);
+            edges.push({ from: sourceId, to: id, kind: ref.kind });
+          }
           if (!visited.has(sourceId) || visited.get(sourceId)! > depth + 1) {
             visited.set(sourceId, depth + 1);
             queue.push({ id: sourceId, depth: depth + 1 });
@@ -327,13 +329,16 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
       });
     }
 
-    return {
+    const graph: CallGraph = {
       root_symbol_id: symbolId,
       direction,
       max_depth: maxDepth,
       nodes,
       edges,
     };
+
+    this.store.callgraphStore(graph);
+    return graph;
   }
 
   async symbolsInFile(filePath: string): Promise<Symbol[]> {
@@ -652,43 +657,13 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
     return best;
   }
 
-  private buildGlobalCallGraph(
-    symbols: Symbol[],
-    refs: Reference[],
-  ): CallGraph | null {
-    if (symbols.length === 0) return null;
-
-    const symbolMap = new Map(symbols.map(s => [s.id, s]));
-    const callRefs = refs.filter(r => r.kind === 'call');
-
-    const nodeSet = new Set<SymbolId>();
-    const edges: CallGraphEdge[] = [];
-
-    for (const ref of callRefs) {
-      if (ref.source_symbol_id && ref.target_symbol_id) {
-        nodeSet.add(ref.source_symbol_id);
-        nodeSet.add(ref.target_symbol_id);
-        edges.push({ from: ref.source_symbol_id, to: ref.target_symbol_id, kind: ref.kind as ReferenceKind });
+  /** 填充引用中的 source_symbol_id：根据引用所在位置找到包含它的函数/方法/类 */
+  private enrichRefsWithSource(refs: Reference[], symbols: Symbol[]): void {
+    for (const ref of refs) {
+      const enclosing = this.findEnclosingSymbol(ref.location.file_path, ref.location.line_start, symbols);
+      if (enclosing) {
+        ref.source_symbol_id = enclosing.id;
       }
     }
-
-    const nodes: CallGraphNode[] = [...nodeSet].map(id => {
-      const sym = symbolMap.get(id);
-      return {
-        symbol_id: id,
-        symbol_name: sym?.name ?? id,
-        file_path: sym?.location.file_path ?? '',
-        line: sym?.location.line_start ?? 0,
-        depth: 0,
-      };
-    });
-
-    return {
-      root_symbol_id: nodes[0]?.symbol_id ?? '',
-      direction: 'both',
-      max_depth: 5,
-      nodes,
-      edges,
-    };
   }
 }
