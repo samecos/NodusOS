@@ -310,7 +310,7 @@ npm test
 - [x] R1.4 类型关系建模（`inheritance` / `implements` / `type_use`）
 - [x] R1.5 TerminalRenderer 调用图 ASCII 渲染
 - [x] R1.6 配置热加载（`~/.nodus/config.json` 变更即时生效）
-- [ ] R1.7 会话恢复（重启后恢复项目、文件、光标位置）
+- [x] R1.7 会话恢复（重启后恢复项目、文件、光标位置）
 - [ ] R1.8 错误处理与降级卡片统一
 
 #### v1.2 体验增强

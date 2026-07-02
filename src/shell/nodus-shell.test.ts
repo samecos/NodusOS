@@ -138,4 +138,48 @@ describe('NodusShell', () => {
     const result = await shell.handleQueryFormatted('hello');
     expect(result).toBeDefined();
   });
+
+  // TC-UT-SH-008: 重启后应恢复项目、文件与光标位置
+  it('TC-UT-SH-008: should restore session state after restart', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    const tmpDir = currentTmpDir;
+    const dbPath = join(tmpDir, 'session.db');
+    const configPath = join(tmpDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      projectPaths: [tinyProjectPath],
+      dbPath,
+      locale: 'zh-CN',
+    }, null, 2));
+
+    // 第一次启动：建立会话状态
+    const configManager1 = new JsonConfigManager(configPath);
+    const shell1 = new NodusShell(configManager1);
+    await shell1.bootstrap();
+
+    shell1.contextMgr.update({ kind: 'project_changed', root: tinyProjectPath });
+    shell1.contextMgr.update({ kind: 'file_opened', path: join(tinyProjectPath, 'index.ts') });
+    shell1.contextMgr.update({
+      kind: 'cursor_moved',
+      file: join(tinyProjectPath, 'index.ts'),
+      line: 7,
+      col: 3,
+      symbol: 'greet',
+    });
+
+    await shell1.shutdown();
+
+    // 第二次启动：验证恢复
+    const configManager2 = new JsonConfigManager(configPath);
+    const shell2 = new NodusShell(configManager2);
+    await shell2.bootstrap();
+
+    const ctx = shell2.contextMgr.snapshot();
+    expect(ctx.active_project_root).toBe(tinyProjectPath);
+    expect(ctx.active_file).toBe(join(tinyProjectPath, 'index.ts'));
+    expect(ctx.cursor_line).toBe(7);
+    expect(ctx.cursor_col).toBe(3);
+    expect(ctx.cursor_symbol).toBe('greet');
+
+    await shell2.shutdown();
+  });
 });
