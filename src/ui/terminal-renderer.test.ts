@@ -282,4 +282,49 @@ describe('TerminalRenderer', () => {
     const matches = out.replace(/\u001b\[[0-9;]*m/g, '').match(/helper\s+\[/g);
     expect(matches).toHaveLength(2);
   });
+
+  // TC-UT-UI-014: callers 方向应显示上游调用方
+  it('TC-UT-UI-014: should render callers direction upstream', () => {
+    const out = renderer.render({
+      kind: 'call_graph',
+      graph: {
+        root_symbol_id: 'target',
+        direction: 'callers',
+        max_depth: 3,
+        nodes: [
+          { symbol_id: 'caller-a', symbol_name: 'callerA', file_path: 'src/a.ts', line: 1, depth: 0 },
+          { symbol_id: 'target', symbol_name: 'targetFn', file_path: 'src/b.ts', line: 5, depth: 1 },
+        ],
+        edges: [{ from: 'caller-a', to: 'target', kind: 'call' }],
+      },
+    });
+    expect(out).toContain('上游调用方');
+    expect(out).toContain('callerA');
+    expect(out).toContain('targetFn');
+  });
+
+  // TC-UT-UI-015: both 方向应同时显示 upstream 与 downstream
+  it('TC-UT-UI-015: should render both directions with upstream and downstream', () => {
+    const out = renderer.render({
+      kind: 'call_graph',
+      graph: {
+        root_symbol_id: 'target',
+        direction: 'both',
+        max_depth: 3,
+        nodes: [
+          { symbol_id: 'caller-a', symbol_name: 'callerA', file_path: 'src/a.ts', line: 1, depth: 0 },
+          { symbol_id: 'target', symbol_name: 'targetFn', file_path: 'src/b.ts', line: 5, depth: 1 },
+          { symbol_id: 'callee-c', symbol_name: 'calleeC', file_path: 'src/c.ts', line: 10, depth: 1 },
+        ],
+        edges: [
+          { from: 'caller-a', to: 'target', kind: 'call' },
+          { from: 'target', to: 'callee-c', kind: 'call' },
+        ],
+      },
+    });
+    expect(out).toContain('上游');
+    expect(out).toContain('下游');
+    expect(out).toContain('callerA');
+    expect(out).toContain('calleeC');
+  });
 });

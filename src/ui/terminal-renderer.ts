@@ -224,11 +224,15 @@ export class TerminalRenderer implements UIRenderer {
       graph.nodes.map(n => [n.symbol_id, n]),
     );
 
-    // 邻接表：symbol_id -> 邻接 symbol_id 列表
-    const adjacency = new Map<string, string[]>();
+    // 正向邻接表：from -> to（callees 使用）
+    const forwardAdj = new Map<string, string[]>();
+    // 反向邻接表：to -> from（callers 使用）
+    const reverseAdj = new Map<string, string[]>();
     for (const edge of graph.edges) {
-      if (!adjacency.has(edge.from)) adjacency.set(edge.from, []);
-      adjacency.get(edge.from)!.push(edge.to);
+      if (!forwardAdj.has(edge.from)) forwardAdj.set(edge.from, []);
+      forwardAdj.get(edge.from)!.push(edge.to);
+      if (!reverseAdj.has(edge.to)) reverseAdj.set(edge.to, []);
+      reverseAdj.get(edge.to)!.push(edge.from);
     }
 
     const rootId = graph.root_symbol_id;
@@ -245,8 +249,6 @@ export class TerminalRenderer implements UIRenderer {
     }
     out += `\n${c('最大深度:', DIM)} ${c(String(graph.max_depth), YELLOW)}\n`;
 
-    const visited = new Set<string>();
-
     const formatNode = (id: string): string => {
       const n = nodeMap.get(id);
       if (!n) return c(`[unknown:${id}]`, DIM);
@@ -255,23 +257,39 @@ export class TerminalRenderer implements UIRenderer {
       return `${c(n.symbol_name, BOLD)} ${c(`[${fileName}:${n.line}]`, DIM)}${risk}`;
     };
 
-    const printTree = (id: string, prefix: string, isLast: boolean): string => {
+    const printTree = (
+      adj: Map<string, string[]>,
+      id: string,
+      prefix: string,
+      isLast: boolean,
+      visited: Set<string>,
+    ): string => {
       if (visited.has(id)) {
         return `${prefix}${isLast ? '└─ ' : '├─ '}${formatNode(id)} ${c('(cycle)', RED)}\n`;
       }
       visited.add(id);
 
       let result = `${prefix}${isLast ? '└─ ' : '├─ '}${formatNode(id)}\n`;
-      const kids = adjacency.get(id) ?? [];
+      const kids = adj.get(id) ?? [];
       for (let i = 0; i < kids.length; i++) {
         const childLast = i === kids.length - 1;
         const nextPrefix = prefix + (isLast ? '   ' : '│  ');
-        result += printTree(kids[i]!, nextPrefix, childLast);
+        result += printTree(adj, kids[i]!, nextPrefix, childLast, visited);
       }
       return result;
     };
 
-    out += printTree(rootId, '  ', true);
+    if (graph.direction === 'callers') {
+      out += printTree(reverseAdj, rootId, '  ', true, new Set());
+    } else if (graph.direction === 'callees') {
+      out += printTree(forwardAdj, rootId, '  ', true, new Set());
+    } else {
+      out += `\n${c('上游', BOLD)}\n`;
+      out += printTree(reverseAdj, rootId, '  ', true, new Set());
+      out += `\n${c('下游', BOLD)}\n`;
+      out += printTree(forwardAdj, rootId, '  ', true, new Set());
+    }
+
     return out;
   }
 
