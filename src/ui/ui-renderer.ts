@@ -23,6 +23,7 @@ export type CardKind =
   | 'change_heat'
   | 'ambiguity'
   | 'env_status'
+  | 'type_relationship_list'
   | 'notification';
 
 export interface Card {

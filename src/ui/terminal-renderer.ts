@@ -6,7 +6,7 @@ import type { UIRenderer, Card, BreathLightState } from './ui-renderer.js';
 import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { IntentError, QueryIntent } from '../intent/intent-engine.js';
 import type { Symbol, Reference, CallGraph, ProjectMeta } from '../common/types.js';
-import type { ImpactReport, ChangeRecord } from '../code-intel/code-intelligence.js';
+import type { ImpactReport, ChangeRecord, TypeRelationship } from '../code-intel/code-intelligence.js';
 import type { SymbolMetric, ModuleCoupling, CallChain, TodoComment } from '../code-intel/code-analytics.js';
 
 const BLUE = '\x1b[36m';
@@ -52,6 +52,8 @@ export class TerminalRenderer implements UIRenderer {
         return this.renderStatsReport(result.stats);
       case 'change_heat':
         return this.renderChangeHeat(result.files);
+      case 'type_relationship_list':
+        return this.renderTypeRelationships(result.root, result.relationships);
       default:
         return JSON.stringify(result, null, 2);
     }
@@ -114,7 +116,8 @@ export class TerminalRenderer implements UIRenderer {
           card.data.kind === 'change_history' || card.data.kind === 'symbol_overview' ||
           card.data.kind === 'symbol_ranking' || card.data.kind === 'module_coupling' ||
           card.data.kind === 'call_chain' || card.data.kind === 'todo_list' ||
-          card.data.kind === 'stats_report' || card.data.kind === 'change_heat') {
+          card.data.kind === 'stats_report' || card.data.kind === 'change_heat' ||
+          card.data.kind === 'type_relationship_list') {
         return this.render(card.data as QueryResult);
       }
       if (card.data.kind === 'empty_input' || card.data.kind === 'unparseable' ||
@@ -365,6 +368,21 @@ export class TerminalRenderer implements UIRenderer {
     return out + '\n';
   }
 
+  private renderTypeRelationships(root: Symbol, relationships: TypeRelationship[]): string {
+    if (relationships.length === 0) return c(`\n${root.name} 没有匹配的类型关系`, DIM);
+
+    let out = c(`\n${root.name} 的类型关系:\n`, BOLD);
+    for (const rel of relationships) {
+      const kindLabel = rel.kind === 'subclass' ? '子类'
+        : rel.kind === 'implementation' ? '实现'
+        : '类型使用';
+      const loc = `${rel.symbol.location.file_path}:${rel.symbol.location.line_start}`;
+      out += `\n  ${c(kindLabel, YELLOW)} ${c(rel.symbol.name, BOLD)} ${c(`[${rel.symbol.kind}]`, DIM)}`;
+      out += `\n    ${c(loc, BLUE)}`;
+    }
+    return out + '\n';
+  }
+
   private renderAmbiguous(candidates: QueryIntent[]): string {
     let out = c('\n你指的是？', BOLD) + '\n';
     for (let i = 0; i < candidates.length; i++) {
@@ -382,7 +400,8 @@ export class TerminalRenderer implements UIRenderer {
     if ('kind' in data && typeof data.kind === 'string') {
       const k = data.kind;
       if (['symbol_list', 'reference_list', 'call_graph', 'impact_report', 'change_history', 'symbol_overview',
-           'symbol_ranking', 'module_coupling', 'call_chain', 'todo_list', 'stats_report', 'change_heat'].includes(k)) {
+           'symbol_ranking', 'module_coupling', 'call_chain', 'todo_list', 'stats_report', 'change_heat',
+           'type_relationship_list'].includes(k)) {
         return k as Card['kind'];
       }
       if (['empty_input', 'unparseable', 'ambiguous', 'unsupported'].includes(k)) {

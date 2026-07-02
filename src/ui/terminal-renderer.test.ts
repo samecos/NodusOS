@@ -231,4 +231,28 @@ describe('TerminalRenderer', () => {
     expect(out).toContain('src/cold.ts');
     expect(out).toContain('2');
   });
+
+  it('TC-UT-TR-XXX: should render type_relationship_list', () => {
+    const out = renderer.render({
+      kind: 'type_relationship_list',
+      root: {
+        id: '1', name: 'IUserService', kind: 'interface', language: 'typescript',
+        location: { file_path: 'src/service.ts', line_start: 1, line_end: 1, col_start: 1, col_end: 1 },
+        is_exported: true,
+      },
+      relationships: [
+        {
+          kind: 'implementation',
+          symbol: {
+            id: '2', name: 'UserService', kind: 'class', language: 'typescript',
+            location: { file_path: 'src/service.ts', line_start: 5, line_end: 5, col_start: 1, col_end: 1 },
+            is_exported: true,
+          },
+        },
+      ],
+    });
+    expect(out).toContain('IUserService');
+    expect(out).toContain('UserService');
+    expect(out).toContain('实现');
+  });
 });
