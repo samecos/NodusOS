@@ -43,6 +43,7 @@ export class NodusShell {
   private config: NodusConfig;
   private modules = new Map<string, unknown>();
   private unsubscribeConfig?: () => void;
+  private isShutdown = false;
 
   constructor(configManager: ConfigManager) {
     this.configManager = configManager;
@@ -230,7 +231,25 @@ export class NodusShell {
   }
 
   async shutdown(): Promise<void> {
+    if (this.isShutdown) {
+      return;
+    }
+    this.isShutdown = true;
+
     console.log('[Nodus] Shutting down...');
+
+    // 保存当前会话状态
+    const ctx = this.contextMgr.snapshot();
+    if (ctx.active_project_root) {
+      this.store.sessionStateUpsert({
+        project_root: ctx.active_project_root,
+        active_file: ctx.active_file,
+        cursor_line: ctx.cursor_line,
+        cursor_col: ctx.cursor_col,
+        cursor_symbol: ctx.cursor_symbol,
+      });
+    }
+
     this.fileWatcher.pause();
     await this.voicePipeline.stop();
     this.unsubscribeConfig?.();
