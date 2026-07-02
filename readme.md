@@ -230,7 +230,7 @@ Human Input (Voice/Text)
 ## TDD Development
 
 ```bash
-npm test              # 运行全部 177 个测试
+npm test              # 运行全部 191 个测试
 npm run test:watch    # 监听模式
 npm run typecheck     # TypeScript 检查
 ```
@@ -294,6 +294,7 @@ npm test
 #### v1.1 基础夯实
 - [x] R1.1 原生二进制兼容性治理（`better-sqlite3` / `tree-sitter` 可正常加载）
 - [x] R1.2 CodeIntelligence 单元测试与集成测试补全
+- [x] R1.3 跨文件引用解析增强（`tsconfig.json` paths / index re-export / namespace import）
 
 #### v1.2 体验增强
 - [ ] R2.1 本地轻量意图模型（BERT-tiny / ONNX，延迟 < 200ms）
@@ -305,7 +306,7 @@ npm test
 ### P1 — 下个版本做
 
 #### v1.1 基础夯实
-- [ ] R1.3 跨文件引用解析增强（`tsconfig.json` paths / index re-export / namespace import）
+- [x] R1.3 跨文件引用解析增强（`tsconfig.json` paths / index re-export / namespace import）
 - [ ] R1.4 类型关系建模（`inheritance` / `implements` / `type_use`）
 - [ ] R1.5 TerminalRenderer 调用图 ASCII 渲染
 - [ ] R1.6 配置热加载（`~/.nodus/config.json` 变更即时生效）
