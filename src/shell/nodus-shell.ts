@@ -318,9 +318,14 @@ export class NodusShell {
       // 实际查询处理在 handleQuery / handleQueryFormatted 中完成
     });
 
-    // 错误事件 → 统一日志与降级提示
+    // 错误事件 → 统一降级卡片
     this.eventBus.on('error', (event) => {
-      console.error(`[Nodus] Error from ${event.module}: ${event.error.message} (${event.error.code})`);
+      const card = this.uiRenderer.createCard(
+        `error-${event.error.code}`,
+        '运行降级提示',
+        { kind: 'error', error: event.error, module: event.module },
+      );
+      console.error(this.uiRenderer.renderCard(card));
     });
   }
 }
