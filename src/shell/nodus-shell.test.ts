@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { NodusShell } from './nodus-shell.js';
 import { JsonConfigManager } from '../common/config.js';
+import { CodeIntelError } from '../common/errors.js';
 
 const tinyProjectPath = join(import.meta.dirname!, '..', '..', 'tests', 'fixtures', 'tiny-project');
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -182,5 +183,34 @@ describe('NodusShell', () => {
     expect(ctx.cursor_line).toBe(7);
     expect(ctx.cursor_col).toBe(3);
     expect(ctx.cursor_symbol).toBe('greet');
+  });
+
+  // TC-UT-SH-009: 查询异常时应返回降级卡片
+  it('TC-UT-SH-009: should return degradation card when query fails', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    const configPath = join(currentTmpDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      projectPaths: [tinyProjectPath],
+      dbPath: ':memory:',
+      locale: 'zh-CN',
+    }, null, 2));
+
+    currentConfigManager = new JsonConfigManager(configPath);
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    // 临时替换 codeIntel.query 为抛出 CodeIntelError 的 mock
+    const originalQuery = shell.codeIntel.query.bind(shell.codeIntel);
+    shell.codeIntel.query = async () => {
+      throw new CodeIntelError(CodeIntelError.NOT_INDEXED, 'project not indexed');
+    };
+
+    try {
+      const result = await shell.handleQueryFormatted('refundOrder在哪里定义的');
+      expect(result).toContain(CodeIntelError.NOT_INDEXED);
+      expect(result).toContain('shell');
+    } finally {
+      shell.codeIntel.query = originalQuery;
+    }
   });
 });
