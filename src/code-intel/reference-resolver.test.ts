@@ -118,4 +118,21 @@ defaultRefund();
     const callRef = refs.find(r => r.kind === 'call')!;
     expect(callRef.target_symbol_id).toBe(refundSym.id);
   });
+
+  it('TC-UT-RR-006: circular re-export 不会导致无限递归且引用保持未解析', () => {
+    mkdirSync(join(TMP, 'src', 'a'), { recursive: true });
+    writeFileSync(join(TMP, 'src', 'a', 'index.ts'), `export { refundOrder } from './b';`);
+    writeFileSync(join(TMP, 'src', 'a', 'b.ts'), `export { refundOrder } from './a';`);
+
+    const appSrc = `import { refundOrder } from './a';
+refundOrder();`;
+    const appSyms = parser.parseSymbols(appSrc, join(TMP, 'src', 'app.ts'));
+    const refs = parser.parseReferences(appSrc, appSyms);
+    const bindings = parser.parseImportBindings(appSrc, join(TMP, 'src', 'app.ts'));
+
+    expect(() => resolver.resolveFileRefs(join(TMP, 'src', 'app.ts'), refs, bindings)).not.toThrow();
+
+    const callRef = refs.find(r => r.kind === 'call')!;
+    expect(callRef.target_symbol_id.startsWith('external:') || callRef.target_symbol_id.startsWith('unknown:')).toBe(true);
+  });
 });

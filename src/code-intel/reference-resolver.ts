@@ -6,6 +6,8 @@ import { TypeScriptParser } from './parsers/typescript-parser.js';
 
 /** 把引用中的 external:/unknown: 目标解析为 KnowledgeStore 中的真实符号 ID */
 export class ReferenceResolver {
+  private parser = new TypeScriptParser();
+
   constructor(
     private moduleResolver: ModuleResolver,
     private store: KnowledgeStore,
@@ -86,12 +88,13 @@ export class ReferenceResolver {
     return exported.find(s => s.name === localName)?.id ?? exported[0].id;
   }
 
-  private resolveReexport(name: string, filePath: string): SymbolId | undefined {
+  private resolveReexport(name: string, filePath: string, visited: Set<string> = new Set()): SymbolId | undefined {
     if (!existsSync(filePath)) return undefined;
+    if (visited.has(filePath)) return undefined;
+    visited.add(filePath);
 
     const source = readFileSync(filePath, 'utf-8');
-    const parser = new TypeScriptParser();
-    const reexports = parser.parseReexports(source, filePath);
+    const reexports = this.parser.parseReexports(source, filePath);
     const target = reexports.find(r => r.name === name);
     if (!target) return undefined;
 
@@ -101,7 +104,7 @@ export class ReferenceResolver {
     const syms = this.store.symbolsFindByFile(nextFile).filter(s => s.is_exported && s.name === name);
     if (syms.length > 0) return syms[0].id;
 
-    // 支持多层 re-export 链
-    return this.resolveReexport(name, nextFile);
+    // 支持多层 re-export 链，并防止循环引用导致无限递归
+    return this.resolveReexport(name, nextFile, visited);
   }
 }
