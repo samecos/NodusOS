@@ -235,7 +235,6 @@ export class TypeScriptParser implements LanguageParser {
 
     // 继承关系（class extends / class implements / interface extends）
     if (node.type === 'extends_clause' || node.type === 'implements_clause' || node.type === 'extends_type_clause') {
-      const parentDecl = node.parent;
       const kind: ReferenceKind = node.type === 'implements_clause'
         ? 'interface_implements'
         : 'inheritance';
