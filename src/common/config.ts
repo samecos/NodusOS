@@ -3,9 +3,9 @@
 // 支持从 ~/.nodus/config.json 读取、热加载与运行时修改。
 // ============================================================
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, watchFile, unwatchFile } from 'node:fs';
-import type { StatWatcher } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, watch } from 'node:fs';
+import type { FSWatcher } from 'node:fs';
+import { join, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
 
 export interface NodusConfig {
@@ -68,12 +68,14 @@ export class JsonConfigManager implements ConfigManager {
   private config: NodusConfig;
   private configPath: string;
   private listeners = new Set<(config: NodusConfig) => void>();
-  private watcher?: StatWatcher;
+  private watcher?: FSWatcher;
+  private debounceTimer?: ReturnType<typeof setTimeout>;
+  private readonly debounceMs = 100;
 
   constructor(configPath = join(homedir(), '.nodus', 'config.json')) {
     this.configPath = configPath;
     this.config = this.load();
-    this.startWatching();
+    this.watchConfig();
   }
 
   get(): NodusConfig;
@@ -115,14 +117,46 @@ export class JsonConfigManager implements ConfigManager {
   }
 
   close(): void {
-    if (this.watcher) {
-      unwatchFile(this.configPath);
-      this.watcher = undefined;
-    }
+    this.stopWatching();
     this.listeners.clear();
   }
 
   // ========== 内部辅助 ==========
+
+  private stopWatching(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = undefined;
+    }
+    if (this.watcher) {
+      this.watcher.close();
+      this.watcher = undefined;
+    }
+  }
+
+  private watchConfig(): void {
+    this.stopWatching();
+
+    const onEvent = (eventType: string, filename: string | null): void => {
+      if (filename !== null && filename !== basename(this.configPath)) return;
+      this.debouncedReload();
+    };
+
+    // 始终监听配置文件所在目录，可可靠捕获文件创建、修改、删除/重命名
+    const dir = dirname(this.configPath);
+    if (existsSync(dir)) {
+      this.watcher = watch(dir, (eventType, filename) => {
+        onEvent(eventType, filename);
+      });
+    }
+  }
+
+  private debouncedReload(): void {
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    this.debounceTimer = setTimeout(() => {
+      this.reload();
+    }, this.debounceMs);
+  }
 
   private load(): NodusConfig {
     if (!existsSync(this.configPath)) {
@@ -160,13 +194,6 @@ export class JsonConfigManager implements ConfigManager {
       env: { ...DEFAULT_CONFIG.env, ...overrides.env },
       codeIntel: { ...DEFAULT_CONFIG.codeIntel, ...overrides.codeIntel },
     };
-  }
-
-  private startWatching(): void {
-    if (!existsSync(this.configPath)) return;
-    this.watcher = watchFile(this.configPath, { interval: 1000 }, (_curr, _prev) => {
-      this.reload();
-    });
   }
 
   private notify(): void {

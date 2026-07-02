@@ -5,8 +5,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { JsonConfigManager, DEFAULT_CONFIG } from './config.js';
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 describe('JsonConfigManager', () => {
   let tmpDir: string;
@@ -101,6 +103,25 @@ describe('JsonConfigManager', () => {
     unsubscribe();
     manager.set('voice.wakeWord', 'Three');
     expect(changes).toEqual(['One', 'Two']);
+    manager.close();
+  });
+
+  // TC-UT-CFG-007: 启动后创建配置文件应触发 hot reload
+  it('TC-UT-CFG-007: should hot-reload when config file is created later', async () => {
+    const manager = new JsonConfigManager(configPath);
+    const changes: import('./config.js').NodusConfig[] = [];
+    manager.onChange((cfg) => changes.push(cfg));
+
+    // 模拟启动时配置文件不存在（constructor 会自动创建默认配置，需先移除）
+    rmSync(configPath, { force: true });
+    expect(existsSync(configPath)).toBe(false);
+
+    writeFileSync(configPath, JSON.stringify({ locale: 'ja-JP' }, null, 2));
+    await wait(250);
+
+    expect(manager.get('locale')).toBe('ja-JP');
+    expect(changes.length).toBeGreaterThanOrEqual(1);
+    expect(changes[changes.length - 1]!.locale).toBe('ja-JP');
     manager.close();
   });
 });
