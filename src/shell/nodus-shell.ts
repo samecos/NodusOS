@@ -84,6 +84,7 @@ export class NodusShell {
     this.modules.set('intent', this.intentEngine);
     this.modules.set('voice', this.voicePipeline);
     this.modules.set('ui', this.uiRenderer);
+    this.modules.set('config_manager', this.configManager);
 
     // 注册事件路由
     this.registerEventRoutes();

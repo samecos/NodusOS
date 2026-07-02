@@ -13,10 +13,13 @@ const tinyProjectPath = join(import.meta.dirname!, '..', '..', 'tests', 'fixture
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 describe('NodusShell', () => {
-  let shell: NodusShell;
+  let shell: NodusShell | undefined;
 
   afterEach(async () => {
-    if (shell) await shell.shutdown();
+    if (shell) {
+      await shell.shutdown();
+      shell = undefined;
+    }
   });
 
   it('TC-UT-SH-001: should bootstrap and open project', async () => {
@@ -114,28 +117,33 @@ describe('NodusShell', () => {
     writeFileSync(configPath, JSON.stringify({
       projectPaths: [tinyProjectPath],
       locale: 'zh-CN',
+      dbPath: ':memory:',
     }, null, 2));
 
     const configManager = new JsonConfigManager(configPath);
-    const shell = new NodusShell(configManager);
-    await shell.bootstrap();
 
-    shell.registerModule('config_manager', configManager);
-    expect(shell.getModule('config_manager')).toBe(configManager);
+    try {
+      shell = new NodusShell(configManager);
+      await shell.bootstrap();
 
-    writeFileSync(configPath, JSON.stringify({
-      projectPaths: [tinyProjectPath],
-      locale: 'en-US',
-    }, null, 2));
-    await wait(300);
+      // configManager 已在构造函数中自动注册
+      expect(shell.getModule('config_manager')).toBe(configManager);
 
-    // locale 变更后，handleQueryFormatted 应使用新 locale
-    // 这里通过内部 configManager 读取验证 shell 已更新
-    const result = await shell.handleQueryFormatted('hello');
-    expect(result).toBeDefined();
+      writeFileSync(configPath, JSON.stringify({
+        projectPaths: [tinyProjectPath],
+        locale: 'en-US',
+      }, null, 2));
+      await wait(300);
 
-    configManager.close();
-    await shell.shutdown();
-    rmSync(tmpDir, { recursive: true, force: true });
+      // locale 变更后，configManager 与 shell 均应反映新配置
+      const updatedLocale = shell.getModule<JsonConfigManager>('config_manager')?.get().locale;
+      expect(updatedLocale).toBe('en-US');
+
+      const result = await shell.handleQueryFormatted('hello');
+      expect(result).toBeDefined();
+    } finally {
+      configManager.close();
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
