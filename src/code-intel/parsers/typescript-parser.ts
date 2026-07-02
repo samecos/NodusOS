@@ -3,7 +3,7 @@
 // ============================================================
 
 import { createRequire } from 'node:module';
-import type { Language, Symbol, Reference, SymbolKind } from '../../common/types.js';
+import type { Language, Symbol, Reference, SymbolKind, ImportBinding, ReexportInfo } from '../../common/types.js';
 import type { LanguageParser, CallEdge } from '../language-parser.js';
 import { hashSymbolId } from './utils.js';
 
@@ -72,6 +72,22 @@ export class TypeScriptParser implements LanguageParser {
     const edges: CallEdge[] = [];
     this.walkForCallEdges(tree.rootNode, source, fp, edges, undefined);
     return edges;
+  }
+
+  parseImportBindings(source: string, filePath: string): ImportBinding[] {
+    this.parser.setLanguage(this.pickLang(filePath));
+    const tree = this.parser.parse(source, undefined, { bufferSize: Math.max(32768, Buffer.byteLength(source, 'utf8')) });
+    const bindings: ImportBinding[] = [];
+    this.walkForImportBindings(tree.rootNode, filePath, bindings);
+    return bindings;
+  }
+
+  parseReexports(source: string, filePath: string): ReexportInfo[] {
+    this.parser.setLanguage(this.pickLang(filePath));
+    const tree = this.parser.parse(source, undefined, { bufferSize: Math.max(32768, Buffer.byteLength(source, 'utf8')) });
+    const reexports: ReexportInfo[] = [];
+    this.walkForReexports(tree.rootNode, filePath, reexports);
+    return reexports;
   }
 
   // ---- internal ----
@@ -291,6 +307,91 @@ export class TypeScriptParser implements LanguageParser {
 
     for (const child of node.namedChildren) {
       this.walkForCallEdges(child, source, filePath, edges, currentCaller);
+    }
+  }
+
+  private walkForImportBindings(
+    node: TSNode,
+    filePath: string,
+    bindings: ImportBinding[],
+  ): void {
+    if (node.type !== 'import_statement') {
+      for (const child of node.namedChildren) {
+        this.walkForImportBindings(child, filePath, bindings);
+      }
+      return;
+    }
+
+    const sourceNode = node.namedChildren.find(c => c.type === 'string');
+    const source = sourceNode?.text.replace(/^['"]|['"]$/g, '') ?? '';
+    const clause = node.namedChildren.find(c => c.type === 'import_clause');
+    if (!clause) return;
+
+    const loc = (n: TSNode) => ({
+      file_path: filePath,
+      line_start: n.startPosition.row + 1,
+      line_end: n.endPosition.row + 1,
+      col_start: n.startPosition.column + 1,
+      col_end: n.endPosition.column + 1,
+    });
+
+    for (const child of clause.namedChildren) {
+      if (child.type === 'identifier') {
+        // default import: import foo from './foo'
+        bindings.push({ source, kind: 'default', localName: child.text, importedName: 'default', location: loc(child) });
+      } else if (child.type === 'namespace_import') {
+        const nameNode = child.namedChildren.find(c => c.type === 'identifier');
+        if (nameNode) {
+          bindings.push({ source, kind: 'namespace', localName: nameNode.text, importedName: '*', location: loc(nameNode) });
+        }
+      } else if (child.type === 'named_imports') {
+        for (const spec of child.namedChildren) {
+          if (spec.type !== 'import_specifier') continue;
+          const importedNode = spec.childForFieldName?.('name');
+          const aliasNode = spec.childForFieldName?.('alias');
+          const importedName = importedNode?.text ?? spec.text;
+          const localName = aliasNode?.text ?? importedName;
+          bindings.push({ source, kind: 'named', localName, importedName, location: loc(spec) });
+        }
+      }
+    }
+  }
+
+  private walkForReexports(
+    node: TSNode,
+    filePath: string,
+    reexports: ReexportInfo[],
+    source?: string,
+  ): void {
+    if (node.type === 'export_statement') {
+      const sourceNode = node.namedChildren.find(c => c.type === 'string');
+      if (!sourceNode) return; // 不是 `from` re-export
+      const reexportSource = sourceNode.text.replace(/^['"]|['"]$/g, '');
+      for (const child of node.namedChildren) {
+        this.walkForReexports(child, filePath, reexports, reexportSource);
+      }
+      return;
+    }
+
+    if (node.type === 'export_specifier' && source) {
+      const nameNode = node.childForFieldName?.('name');
+      if (!nameNode) return;
+      reexports.push({
+        name: nameNode.text,
+        source,
+        location: {
+          file_path: filePath,
+          line_start: node.startPosition.row + 1,
+          line_end: node.endPosition.row + 1,
+          col_start: node.startPosition.column + 1,
+          col_end: node.endPosition.column + 1,
+        },
+      });
+      return;
+    }
+
+    for (const child of node.namedChildren) {
+      this.walkForReexports(child, filePath, reexports, source);
     }
   }
 

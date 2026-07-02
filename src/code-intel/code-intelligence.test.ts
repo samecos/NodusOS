@@ -141,8 +141,8 @@ export class PaymentService extends BaseService {}
     expect(inheritances.map(r => r.target_symbol_id)).toContain(baseService.id);
   });
 
-  // TC-UT-CI-021: 识别 new 表达式实例化引用
-  it('TC-UT-CI-021: should extract new expression references', () => {
+  // TC-UT-CI-025: 识别 new 表达式实例化引用
+  it('TC-UT-CI-025: should extract new expression references', () => {
     const source = `
 class PaymentService {}
 const service = new PaymentService();
@@ -198,8 +198,8 @@ export enum RefundStatus {
     expect(enumSym!.is_exported).toBe(true);
   });
 
-  // TC-UT-CI-020: 识别装饰器引用
-  it('TC-UT-CI-020: should extract decorator references', () => {
+  // TC-UT-CI-026: 识别装饰器引用
+  it('TC-UT-CI-026: should extract decorator references', () => {
     const source = `
 function Controller(prefix: string) {
   return function (target: any) {};
@@ -222,6 +222,32 @@ export class PaymentController {}
     const source = 'function broken({' ; // 语法错误
     // tree-sitter 容错，应返回符号（尽力而为）或不抛异常
     expect(() => parser.parseSymbols(source, 'src/broken.ts')).not.toThrow();
+  });
+
+  // TC-UT-CI-020: 提取 import binding
+  it('TC-UT-CI-020: should extract import bindings', () => {
+    const source = `
+import refund, { getOrder as get, Order } from './payment';
+import * as payment from './payment';
+`;
+    const bindings = parser.parseImportBindings(source, 'src/app.ts');
+    const named = bindings.filter(b => b.kind === 'named');
+    const def = bindings.find(b => b.kind === 'default');
+    const ns = bindings.find(b => b.kind === 'namespace');
+
+    expect(named.length).toBe(2);
+    expect(named.find(b => b.localName === 'get')?.importedName).toBe('getOrder');
+    expect(named.find(b => b.localName === 'Order')?.importedName).toBe('Order');
+    expect(def?.localName).toBe('refund');
+    expect(ns?.localName).toBe('payment');
+  });
+
+  // TC-UT-CI-021: 提取 re-export
+  it('TC-UT-CI-021: should extract re-exports from index file', () => {
+    const source = `export { refundOrder } from './payment';\nexport { formatCurrency } from './format';`;
+    const reexports = parser.parseReexports(source, 'src/index.ts');
+    expect(reexports.map(r => r.name)).toContain('refundOrder');
+    expect(reexports.map(r => r.name)).toContain('formatCurrency');
   });
 });
 

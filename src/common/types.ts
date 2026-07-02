@@ -62,6 +62,22 @@ export interface Reference {
   kind: ReferenceKind;
 }
 
+/** import 绑定信息 */
+export interface ImportBinding {
+  source: string;
+  kind: 'named' | 'default' | 'namespace';
+  localName: string;
+  importedName: string;
+  location: SourceLocation;
+}
+
+/** re-export 信息：index.ts 中 `export { foo } from './foo'` */
+export interface ReexportInfo {
+  name: string;
+  source: string;
+  location: SourceLocation;
+}
+
 /** 调用方向 */
 export type CallDirection = 'callers' | 'callees' | 'both';
 
