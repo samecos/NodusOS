@@ -299,6 +299,21 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
     return this.store.refsFindByTarget(symbolId);
   }
 
+  async findSubclasses(symbolId: SymbolId): Promise<Symbol[]> {
+    const refs = this.store.refsFindByTarget(symbolId).filter(r => r.kind === 'inheritance');
+    return this.symbolsFromRefs(refs);
+  }
+
+  async findImplementations(symbolId: SymbolId): Promise<Symbol[]> {
+    const refs = this.store.refsFindByTarget(symbolId).filter(r => r.kind === 'interface_implements');
+    return this.symbolsFromRefs(refs);
+  }
+
+  async findTypeUses(symbolId: SymbolId): Promise<Symbol[]> {
+    const refs = this.store.refsFindByTarget(symbolId).filter(r => r.kind === 'type_use');
+    return this.symbolsFromRefs(refs);
+  }
+
   async callGraph(symbolId: SymbolId, direction: CallDirection, maxDepth: number): Promise<CallGraph | null> {
     const root = this.store.symbolsFindById(symbolId);
     if (!root) return null;
@@ -647,6 +662,35 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
   }
 
   // ========== 内部辅助 ==========
+
+  private symbolsFromRefs(refs: Reference[]): Symbol[] {
+    const seen = new Set<SymbolId>();
+    const result: Symbol[] = [];
+    const fileSymbols = new Map<string, Symbol[]>();
+
+    for (const ref of refs) {
+      let sourceId: SymbolId | undefined = ref.source_symbol_id || undefined;
+
+      // parser 可能未填充 source_symbol_id，此时按引用所在位置推断其外围符号
+      if (!sourceId) {
+        let syms = fileSymbols.get(ref.location.file_path);
+        if (!syms) {
+          syms = this.store.symbolsFindByFile(ref.location.file_path);
+          fileSymbols.set(ref.location.file_path, syms);
+        }
+        const enclosing = this.findEnclosingSymbol(ref.location.file_path, ref.location.line_start, syms);
+        if (enclosing) sourceId = enclosing.id;
+      }
+
+      if (!sourceId || seen.has(sourceId)) continue;
+      const sym = this.store.symbolsFindById(sourceId);
+      if (sym) {
+        seen.add(sourceId);
+        result.push(sym);
+      }
+    }
+    return result;
+  }
 
   private async collectFiles(root: string): Promise<string[]> {
     const files: string[] = [];

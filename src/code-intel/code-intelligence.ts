@@ -71,6 +71,15 @@ export interface StatsReport {
   filesIndexed: number;
 }
 
+/** 类型关系种类 */
+export type RelationshipKind = 'subclass' | 'implementation' | 'type_use';
+
+/** 某个符号与根符号之间的类型关系 */
+export interface TypeRelationship {
+  kind: RelationshipKind;
+  symbol: Symbol;
+}
+
 export type QueryResult =
   | { kind: 'symbol_list'; symbols: Symbol[] }
   | { kind: 'reference_list'; references: Reference[] }
@@ -83,7 +92,8 @@ export type QueryResult =
   | { kind: 'call_chain'; chains: CallChain[] }
   | { kind: 'todo_list'; comments: TodoComment[] }
   | { kind: 'stats_report'; stats: StatsReport }
-  | { kind: 'change_heat'; files: { filePath: string; changeCount: number }[] };
+  | { kind: 'change_heat'; files: { filePath: string; changeCount: number }[] }
+  | { kind: 'type_relationship_list'; root: Symbol; relationships: TypeRelationship[] };
 
 // ---- Main interface ----
 
@@ -99,6 +109,9 @@ export interface CodeIntelligence {
   // 查询
   findSymbol(name: string, kind?: SymbolKind, fileFilter?: string, limit?: number): Promise<Symbol[]>;
   findReferences(symbolId: SymbolId): Promise<Reference[]>;
+  findSubclasses(symbolId: SymbolId): Promise<Symbol[]>;
+  findImplementations(symbolId: SymbolId): Promise<Symbol[]>;
+  findTypeUses(symbolId: SymbolId): Promise<Symbol[]>;
   callGraph(symbolId: SymbolId, direction: CallDirection, maxDepth: number): Promise<CallGraph | null>;
   symbolsInFile(filePath: string): Promise<Symbol[]>;
   impactAnalysis(symbolId: SymbolId): Promise<ImpactReport | null>;
