@@ -4,6 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TerminalRenderer } from './terminal-renderer.js';
+import { CodeIntelError } from '../common/errors.js';
 
 describe('TerminalRenderer', () => {
   let renderer: TerminalRenderer;
@@ -440,5 +441,19 @@ describe('TerminalRenderer', () => {
       },
     });
     expect(out).toContain('调用图为空');
+  });
+
+  // TC-UT-UI-022: 应渲染 NodusError 降级卡片
+  it('TC-UT-UI-022: should render NodusError degradation card', () => {
+    const error = new CodeIntelError(CodeIntelError.NO_PARSER, 'No parser available');
+    const card = renderer.createCard('err-1', '出错了', {
+      kind: 'error',
+      module: 'code_intel',
+      error,
+    });
+    const out = renderer.renderCard(card);
+    expect(out).toContain('No parser available');
+    expect(out).toContain(CodeIntelError.NO_PARSER);
+    expect(out).toContain('code_intel');
   });
 });

@@ -7,6 +7,7 @@ import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { IntentError, QueryIntent } from '../intent/intent-engine.js';
 import type { ProjectMeta } from '../common/types.js';
 import type { EnvStatus } from '../env-mgr/environment-manager.js';
+import type { NodusError } from '../common/errors.js';
 
 export type CardKind =
   | 'symbol_list'
@@ -24,14 +25,21 @@ export type CardKind =
   | 'ambiguity'
   | 'env_status'
   | 'type_relationship_list'
-  | 'notification';
+  | 'notification'
+  | 'error';
 
 export interface Card {
   id: string;
   kind: CardKind;
   title: string;
   /** 卡片原始数据，由具体渲染器决定如何呈现 */
-  data: QueryResult | IntentError | ProjectMeta | QueryIntent[] | { title: string; body: string };
+  data:
+    | QueryResult
+    | IntentError
+    | ProjectMeta
+    | QueryIntent[]
+    | { title: string; body: string }
+    | { kind: 'error'; error: NodusError; module: string };
   createdAt: string;
   /** 可选的存活时间（秒），undefined 表示手动关闭 */
   ttlSeconds?: number;
@@ -55,7 +63,13 @@ export interface UIRenderer {
   createCard(
     id: string,
     title: string,
-    data: QueryResult | IntentError | ProjectMeta | QueryIntent[] | { title: string; body: string },
+    data:
+      | QueryResult
+      | IntentError
+      | ProjectMeta
+      | QueryIntent[]
+      | { title: string; body: string }
+      | { kind: 'error'; error: NodusError; module: string },
     ttlSeconds?: number,
   ): Card;
 
