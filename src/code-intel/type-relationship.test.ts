@@ -16,6 +16,11 @@ export class UserService implements IUserService {
 export class AdminService implements IUserService {
   getUser(id: string): void {}
 }
+
+export class Base {}
+export class Derived extends Base {}
+
+export function process(service: IUserService): void {}
 `;
 
 describe('TypeRelationship queries', () => {
@@ -37,5 +42,17 @@ describe('TypeRelationship queries', () => {
     const impls = await ci.findImplementations(iface.id);
     expect(impls.map(s => s.name)).toContain('UserService');
     expect(impls.map(s => s.name)).toContain('AdminService');
+  });
+
+  it('TC-UT-TR-002: findSubclasses returns derived classes', async () => {
+    const base = store.symbolsFindByName('Base', 'class', 1)[0]!;
+    const subs = await ci.findSubclasses(base.id);
+    expect(subs.map(s => s.name)).toContain('Derived');
+  });
+
+  it('TC-UT-TR-003: findTypeUses returns symbols that use the type', async () => {
+    const iface = store.symbolsFindByName('IUserService', 'interface', 1)[0]!;
+    const users = await ci.findTypeUses(iface.id);
+    expect(users.map(s => s.name)).toContain('process');
   });
 });
