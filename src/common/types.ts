@@ -177,7 +177,8 @@ export type IntentType =
   | 'symbol_overview'
   | 'list_symbols'
   | 'stats'
-  | 'analytics';
+  | 'analytics'
+  | 'type_relationships';
 
 /** 变更范围 */
 export type ChangeScope =

@@ -162,4 +162,17 @@ describe('IntentEngine', () => {
     const resolved = engine.resolveAmbiguity(candidates, 1);
     expect(resolved.intentType).toBe('find_references');
   });
+
+  const emptyContext = makeCtx();
+
+  // TC-UT-IE-XXX: type_relationships 实现关系
+  it('TC-UT-IE-XXX: should parse "who implements IUserService"', () => {
+    const result = engine.parse({ source: 'text', text: '谁实现了 IUserService', locale: 'zh-CN' }, emptyContext);
+    expect(result).not.toHaveProperty('kind');
+    if (!('kind' in result)) {
+      expect(result.intentType).toBe('type_relationships');
+      expect(result.entities.symbolName).toBe('IUserService');
+      expect(result.entities.relationshipKind).toBe('implementation');
+    }
+  });
 });

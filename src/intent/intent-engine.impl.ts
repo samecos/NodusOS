@@ -70,6 +70,13 @@ export class PatternIntentEngine implements IntentEngine {
     { text: 'TODO 列表', intentType: 'analytics' },
     { text: '复杂度最高的函数', intentType: 'analytics' },
     { text: '变更热点文件', intentType: 'analytics' },
+    // type_relationships
+    { text: '谁实现了 xxx', intentType: 'type_relationships', entityHint: 'symbol' },
+    { text: 'xxx 有哪些实现', intentType: 'type_relationships', entityHint: 'symbol' },
+    { text: '哪些类继承了 xxx', intentType: 'type_relationships', entityHint: 'symbol' },
+    { text: '哪些类型使用了 xxx', intentType: 'type_relationships', entityHint: 'symbol' },
+    { text: 'who implements xxx', intentType: 'type_relationships', entityHint: 'symbol' },
+    { text: 'subclasses of xxx', intentType: 'type_relationships', entityHint: 'symbol' },
   ];
 
   parse(input: IntentInput, context: Context): QueryIntent | IntentError {
@@ -227,6 +234,20 @@ export class PatternIntentEngine implements IntentEngine {
         intentType: 'stats',
         extractEntities: () => ({}),
       },
+      // 类型关系
+      {
+        patterns: [
+          /(?:谁|哪些类|哪些类型)(?:实现|继承|使用|引用).{0,2}(?:了|过)?\s*(.+)/i,
+          /(.+?)(?:的|有|有)?(?:哪些)?(?:实现|子类|继承类|使用|引用)/i,
+          /(?:who|which\s+classes?)\s+(?:implements?|extends?|uses?)\s+(.+)/i,
+          /(?:subclasses?|implementations?)\s+of\s+(.+)/i,
+        ],
+        intentType: 'type_relationships',
+        extractEntities: (_, text, ctx) => ({
+          symbolName: this.extractSymbolName(text) ?? ctx.cursor_symbol ?? undefined,
+          relationshipKind: this.extractRelationshipKind(text),
+        }),
+      },
       // 分析
       {
         patterns: [
@@ -263,6 +284,8 @@ export class PatternIntentEngine implements IntentEngine {
         const match = pattern.exec(lower);
         if (match) {
           const entities = rule.extractEntities(match, rawText, ctx);
+          // 类型关系必须能提取到符号名，否则继续匹配后续规则（避免误吞 analytics 等聚合意图）
+          if (rule.intentType === 'type_relationships' && !entities.symbolName) continue;
           // 聚合类意图（list_symbols / stats / analytics）模式本身足够明确，直接给高置信度
           const aggregateIntent = rule.intentType === 'list_symbols' || rule.intentType === 'stats' || rule.intentType === 'analytics';
           const hasEntity = entities.symbolName || entities.filePath || entities.moduleName ||
@@ -448,6 +471,14 @@ export class PatternIntentEngine implements IntentEngine {
     if (/todo|fixme|hack|待办|备忘/.test(lower)) return 'todos';
     if (/复杂度最高|最复杂|most complex|complexity/.test(lower)) return 'complexity';
     if (/变更热点|最热文件|most changed|change heat|changed files/.test(lower)) return 'most_changed';
+    return undefined;
+  }
+
+  private extractRelationshipKind(text: string): 'subclass' | 'implementation' | 'type_use' | undefined {
+    const lower = text.toLowerCase();
+    if (/实现|implements?/.test(lower)) return 'implementation';
+    if (/继承|extends?|子类|subclasses?/.test(lower)) return 'subclass';
+    if (/使用|uses?|引用|type\s+uses?/.test(lower)) return 'type_use';
     return undefined;
   }
 }

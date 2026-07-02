@@ -16,7 +16,7 @@ import type { LanguageParser } from './language-parser.js';
 import { CodeIntelError } from '../common/errors.js';
 import type {
   CodeIntelligence, IndexReport, FileIndexResult,
-  ImpactReport, ChangeRecord, QueryIntent, QueryResult, ChangeScope,
+  ImpactReport, ChangeRecord, QueryIntent, QueryResult, ChangeScope, RelationshipKind,
 } from './code-intelligence.js';
 import type { GitIntelligence, DiffData } from '../git-intel/git-intelligence.js';
 import { TypeScriptParser } from './parsers/typescript-parser.js';
@@ -618,6 +618,33 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
       }
       case 'analytics': {
         return this.handleAnalyticsQuery(entities.subType);
+      }
+      case 'type_relationships': {
+        const syms = await this.findSymbol(entities.symbolName ?? '', undefined, undefined, 1);
+        if (!syms[0]) return { kind: 'type_relationship_list', root: { id: '', name: '', kind: 'interface', language: 'typescript', location: { file_path: '', line_start: 0, line_end: 0, col_start: 0, col_end: 0 }, is_exported: false }, relationships: [] };
+        const root = syms[0];
+        let related: Symbol[] = [];
+        let relKind: RelationshipKind = 'type_use';
+        switch (entities.relationshipKind) {
+          case 'subclass':
+            related = await this.findSubclasses(root.id);
+            relKind = 'subclass';
+            break;
+          case 'implementation':
+            related = await this.findImplementations(root.id);
+            relKind = 'implementation';
+            break;
+          case 'type_use':
+          default:
+            related = await this.findTypeUses(root.id);
+            relKind = 'type_use';
+            break;
+        }
+        return {
+          kind: 'type_relationship_list',
+          root,
+          relationships: related.map(s => ({ kind: relKind, symbol: s })),
+        };
       }
       default:
         return { kind: 'symbol_list', symbols: [] };

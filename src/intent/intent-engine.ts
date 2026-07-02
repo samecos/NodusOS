@@ -28,6 +28,8 @@ export interface IntentEntity {
     filePath?: string;
     modulePath?: string;
   };
+  /** 类型关系意图的具体关系类型 */
+  relationshipKind?: 'subclass' | 'implementation' | 'type_use';
 }
 
 export interface QueryIntent {
