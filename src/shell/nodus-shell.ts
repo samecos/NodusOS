@@ -3,6 +3,7 @@
 // 与 ArchitecturalDesignPhase/04-API-Reference.md §2 一致
 // ============================================================
 
+import { NodusError, EnvError } from '../common/errors.js';
 import { SimpleEventBus } from './event-bus.impl.js';
 import { SqliteKnowledgeStore } from '../store/knowledge-store.impl.js';
 import { DefaultContextManager } from '../context/context-manager.impl.js';
@@ -181,7 +182,15 @@ export class NodusShell {
 
       console.log(`[Nodus] Project ready: ${meta.name} (${meta.languages.join(', ')})`);
     } catch (err) {
-      console.error(`[Nodus] Failed to open project: ${err}`);
+      const nodusErr = err instanceof NodusError
+        ? err
+        : new EnvError(EnvError.COMMAND_FAILED, `Failed to open project ${projectPath}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+      this.eventBus.emit({ kind: 'error', module: 'environment', error: nodusErr });
+      console.error(this.uiRenderer.renderCard(this.uiRenderer.createCard(
+        `error-${nodusErr.code}`,
+        '打开项目失败',
+        { kind: 'error', error: nodusErr, module: 'environment' },
+      )));
     }
   }
 
@@ -219,33 +228,45 @@ export class NodusShell {
   async handleQueryFormatted(text: string): Promise<string> {
     this.eventBus.emit({ kind: 'query:received', text });
 
-    const context = this.contextMgr.snapshot();
-    const result = this.intentEngine.parse(
-      { source: 'text', text, locale: this.config.locale ?? 'zh-CN' },
-      context,
-    );
+    try {
+      const context = this.contextMgr.snapshot();
+      const result = this.intentEngine.parse(
+        { source: 'text', text, locale: this.config.locale ?? 'zh-CN' },
+        context,
+      );
 
-    // Intent error — 直接格式化错误
-    if ('kind' in result && !('intentType' in result)) {
-      return this.uiRenderer.renderError(result as unknown as import('../intent/intent-engine.js').IntentError);
+      // Intent error — 直接格式化错误
+      if ('kind' in result && !('intentType' in result)) {
+        return this.uiRenderer.renderError(result as unknown as import('../intent/intent-engine.js').IntentError);
+      }
+
+      const intent = result as QueryIntent;
+      this.contextMgr.recordQuery(text, intent.intentType);
+      const queryResult = await this.codeIntel.query(intent);
+      this.eventBus.emit({ kind: 'query:result', result: queryResult });
+
+      // 记录查询历史
+      this.store.historyRecord({
+        raw_text: text,
+        intent_type: intent.intentType,
+        confidence: intent.confidence,
+        latency_ms: 0,
+        result_count: this.countResults(queryResult),
+        timestamp: new Date().toISOString(),
+      });
+
+      return this.uiRenderer.render(queryResult);
+    } catch (err) {
+      const nodusErr = err instanceof NodusError
+        ? err
+        : new NodusError('SHELL_QUERY_FAILED', err instanceof Error ? err.message : String(err), { cause: err });
+      this.eventBus.emit({ kind: 'error', module: 'shell', error: nodusErr });
+      return this.uiRenderer.renderCard(this.uiRenderer.createCard(
+        `error-${nodusErr.code}`,
+        '查询失败',
+        { kind: 'error', error: nodusErr, module: 'shell' },
+      ));
     }
-
-    const intent = result as QueryIntent;
-    this.contextMgr.recordQuery(text, intent.intentType);
-    const queryResult = await this.codeIntel.query(intent);
-    this.eventBus.emit({ kind: 'query:result', result: queryResult });
-
-    // 记录查询历史
-    this.store.historyRecord({
-      raw_text: text,
-      intent_type: intent.intentType,
-      confidence: intent.confidence,
-      latency_ms: 0,
-      result_count: this.countResults(queryResult),
-      timestamp: new Date().toISOString(),
-    });
-
-    return this.uiRenderer.render(queryResult);
   }
 
   async shutdown(): Promise<void> {
