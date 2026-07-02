@@ -5,7 +5,7 @@
 import type { UIRenderer, Card, BreathLightState } from './ui-renderer.js';
 import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { IntentError, QueryIntent } from '../intent/intent-engine.js';
-import type { Symbol, Reference, CallGraph, CallGraphNode, ProjectMeta } from '../common/types.js';
+import type { Symbol, Reference, ReferenceKind, CallGraph, CallGraphNode, ProjectMeta } from '../common/types.js';
 import type { ImpactReport, ChangeRecord, TypeRelationship } from '../code-intel/code-intelligence.js';
 import type { SymbolMetric, ModuleCoupling, CallChain, TodoComment } from '../code-intel/code-analytics.js';
 
@@ -218,6 +218,8 @@ export class TerminalRenderer implements UIRenderer {
   }
 
   private renderCallGraph(graph: CallGraph): string {
+    if (graph.nodes.length === 0) return c('调用图为空', DIM);
+
     const nodeMap = new Map<string, CallGraphNode>(
       graph.nodes.map(n => [n.symbol_id, n]),
     );
@@ -226,17 +228,20 @@ export class TerminalRenderer implements UIRenderer {
     const root = nodeMap.get(rootId);
     if (!root) return c('调用图根节点不存在', DIM);
 
-    if (graph.nodes.length === 0) return c('调用图为空', DIM);
-
     // 正向邻接表：from -> to（callees 使用）
     const forwardAdj = new Map<string, string[]>();
     // 反向邻接表：to -> from（callers 使用）
     const reverseAdj = new Map<string, string[]>();
+    // 按树中父子关系索引的边类型，避免遍历 edges 数组
+    const forwardEdgeKinds = new Map<string, ReferenceKind>();
+    const reverseEdgeKinds = new Map<string, ReferenceKind>();
     for (const edge of graph.edges) {
       if (!forwardAdj.has(edge.from)) forwardAdj.set(edge.from, []);
       forwardAdj.get(edge.from)!.push(edge.to);
       if (!reverseAdj.has(edge.to)) reverseAdj.set(edge.to, []);
       reverseAdj.get(edge.to)!.push(edge.from);
+      forwardEdgeKinds.set(`${edge.from}→${edge.to}`, edge.kind);
+      reverseEdgeKinds.set(`${edge.to}→${edge.from}`, edge.kind);
     }
 
     let out = c('\n调用图', BOLD);
@@ -257,32 +262,31 @@ export class TerminalRenderer implements UIRenderer {
       return `${c(n.symbol_name, BOLD)} ${c(`[${fileName}:${n.line}]`, DIM)}${risk}`;
     };
 
-    const printTree = (
-      adj: Map<string, string[]>,
-      id: string,
-      prefix: string,
-      isLast: boolean,
-      visited: Set<string>,
-      depth: number,
-      isReverse: boolean,
-      parentId?: string,
-    ): string => {
-      const findEdgeKind = (): string | undefined => {
-        if (!parentId) return undefined;
-        if (isReverse) {
-          return graph.edges.find(e => e.from === id && e.to === parentId)?.kind;
-        }
-        return graph.edges.find(e => e.from === parentId && e.to === id)?.kind;
-      };
+    interface TreeCtx {
+      adj: Map<string, string[]>;
+      edgeKinds: Map<string, ReferenceKind>;
+      visited: Set<string>;
+    }
+
+    interface TreeNodeOpts {
+      id: string;
+      prefix: string;
+      isLast: boolean;
+      depth: number;
+      parentId?: string;
+    }
+
+    const printTree = ({ adj, edgeKinds, visited }: TreeCtx, { id, prefix, isLast, depth, parentId }: TreeNodeOpts): string => {
+      const edgeKind = parentId ? edgeKinds.get(`${parentId}→${id}`) : undefined;
 
       if (visited.has(id)) {
-        const edgeLabel = parentId ? ` ${c(`· ${findEdgeKind() ?? 'unknown'}`, DIM)}` : '';
+        const edgeLabel = parentId ? ` ${c(`· ${edgeKind ?? 'unknown'}`, DIM)}` : '';
         return `${prefix}${isLast ? '└─ ' : '├─ '}${formatNode(id)}${edgeLabel} ${c('(cycle)', RED)}\n`;
       }
       visited.add(id);
 
       const edgeLabel = parentId
-        ? ` ${c(`· ${findEdgeKind() ?? 'unknown'}`, DIM)}`
+        ? ` ${c(`· ${edgeKind ?? 'unknown'}`, DIM)}`
         : '';
       const connector = isLast ? '└─ ' : '├─ ';
       const kids = adj.get(id) ?? [];
@@ -296,20 +300,35 @@ export class TerminalRenderer implements UIRenderer {
       for (let i = 0; i < kids.length; i++) {
         const childLast = i === kids.length - 1;
         const nextPrefix = prefix + (isLast ? '   ' : '│  ');
-        result += printTree(adj, kids[i]!, nextPrefix, childLast, visited, depth + 1, isReverse, id);
+        result += printTree(
+          { adj, edgeKinds, visited },
+          { id: kids[i]!, prefix: nextPrefix, isLast: childLast, depth: depth + 1, parentId: id },
+        );
       }
       return result;
     };
 
     if (graph.direction === 'callers') {
-      out += printTree(reverseAdj, rootId, '  ', true, new Set(), 0, true);
+      out += printTree(
+        { adj: reverseAdj, edgeKinds: reverseEdgeKinds, visited: new Set() },
+        { id: rootId, prefix: '  ', isLast: true, depth: 0 },
+      );
     } else if (graph.direction === 'callees') {
-      out += printTree(forwardAdj, rootId, '  ', true, new Set(), 0, false);
+      out += printTree(
+        { adj: forwardAdj, edgeKinds: forwardEdgeKinds, visited: new Set() },
+        { id: rootId, prefix: '  ', isLast: true, depth: 0 },
+      );
     } else {
       out += `\n${c('上游', BOLD)}\n`;
-      out += printTree(reverseAdj, rootId, '  ', true, new Set(), 0, true);
+      out += printTree(
+        { adj: reverseAdj, edgeKinds: reverseEdgeKinds, visited: new Set() },
+        { id: rootId, prefix: '  ', isLast: true, depth: 0 },
+      );
       out += `\n${c('下游', BOLD)}\n`;
-      out += printTree(forwardAdj, rootId, '  ', true, new Set(), 0, false);
+      out += printTree(
+        { adj: forwardAdj, edgeKinds: forwardEdgeKinds, visited: new Set() },
+        { id: rootId, prefix: '  ', isLast: true, depth: 0 },
+      );
     }
 
     return out;

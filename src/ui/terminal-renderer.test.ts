@@ -370,25 +370,6 @@ describe('TerminalRenderer', () => {
     expect(lines.some(line => line.includes('child') && line.includes('已截断'))).toBe(true);
   });
 
-  // TC-UT-UI-020: callers 方向应正确标注反向边类型
-  it('TC-UT-UI-020: should label edge kinds for callers direction', () => {
-    const out = renderer.render({
-      kind: 'call_graph',
-      graph: {
-        root_symbol_id: 'target',
-        direction: 'callers',
-        max_depth: 3,
-        nodes: [
-          { symbol_id: 'caller-a', symbol_name: 'callerA', file_path: 'src/a.ts', line: 1, depth: 1 },
-          { symbol_id: 'target', symbol_name: 'targetFn', file_path: 'src/b.ts', line: 5, depth: 0 },
-        ],
-        edges: [{ from: 'caller-a', to: 'target', kind: 'call' }],
-      },
-    });
-    const lines = out.replace(/\u001b\[[0-9;]*m/g, '').split('\n');
-    expect(lines.some(line => line.includes('callerA') && line.includes('call'))).toBe(true);
-  });
-
   // TC-UT-UI-018: 风险节点应高亮
   it('TC-UT-UI-018: should highlight risky nodes', () => {
     const out = renderer.render({
@@ -418,10 +399,46 @@ describe('TerminalRenderer', () => {
         root_symbol_id: 'missing',
         direction: 'callees',
         max_depth: 3,
-        nodes: [],
+        nodes: [
+          { symbol_id: 'other', symbol_name: 'other', file_path: 'src/o.ts', line: 1, depth: 0 },
+        ],
         edges: [],
       },
     });
     expect(out).toContain('调用图根节点不存在');
+  });
+
+  // TC-UT-UI-020: callers 方向应正确标注反向边类型
+  it('TC-UT-UI-020: should label edge kinds for callers direction', () => {
+    const out = renderer.render({
+      kind: 'call_graph',
+      graph: {
+        root_symbol_id: 'target',
+        direction: 'callers',
+        max_depth: 3,
+        nodes: [
+          { symbol_id: 'caller-a', symbol_name: 'callerA', file_path: 'src/a.ts', line: 1, depth: 1 },
+          { symbol_id: 'target', symbol_name: 'targetFn', file_path: 'src/b.ts', line: 5, depth: 0 },
+        ],
+        edges: [{ from: 'caller-a', to: 'target', kind: 'call' }],
+      },
+    });
+    const lines = out.replace(/\u001b\[[0-9;]*m/g, '').split('\n');
+    expect(lines.some(line => line.includes('callerA') && line.includes('call'))).toBe(true);
+  });
+
+  // TC-UT-UI-021: 空节点数组应提示调用图为空
+  it('TC-UT-UI-021: should indicate empty call graph', () => {
+    const out = renderer.render({
+      kind: 'call_graph',
+      graph: {
+        root_symbol_id: 'root',
+        direction: 'callees',
+        max_depth: 3,
+        nodes: [],
+        edges: [],
+      },
+    });
+    expect(out).toContain('调用图为空');
   });
 });
