@@ -249,6 +249,44 @@ import * as payment from './payment';
     expect(reexports.map(r => r.name)).toContain('refundOrder');
     expect(reexports.map(r => r.name)).toContain('formatCurrency');
   });
+
+  // TC-UT-CI-027: class extends class 产生 inheritance 引用
+  it('TC-UT-CI-027: class extends class emits inheritance reference', () => {
+    const source = `
+export class Base {}
+export class Derived extends Base {}
+`;
+    const symbols = parser.parseSymbols(source, 'src/derived.ts');
+    const refs = parser.parseReferences(source, symbols);
+    const inheritRefs = refs.filter(r => r.kind === 'inheritance');
+    expect(inheritRefs.length).toBeGreaterThanOrEqual(1);
+    expect(inheritRefs[0]!.target_symbol_id).toBe(symbols.find(s => s.name === 'Base')!.id);
+  });
+
+  // TC-UT-CI-028: class implements interface 产生 interface_implements 引用
+  it('TC-UT-CI-028: class implements interface emits interface_implements reference', () => {
+    const source = `
+export interface IUserService {}
+export class UserService implements IUserService {}
+`;
+    const symbols = parser.parseSymbols(source, 'src/service.ts');
+    const refs = parser.parseReferences(source, symbols);
+    const implRefs = refs.filter(r => r.kind === 'interface_implements');
+    expect(implRefs.length).toBeGreaterThanOrEqual(1);
+    expect(implRefs[0]!.target_symbol_id).toBe(symbols.find(s => s.name === 'IUserService')!.id);
+  });
+
+  // TC-UT-CI-029: interface extends interface 产生 inheritance 引用
+  it('TC-UT-CI-029: interface extends interface emits inheritance reference', () => {
+    const source = `
+export interface Base {}
+export interface Derived extends Base {}
+`;
+    const symbols = parser.parseSymbols(source, 'src/derived.ts');
+    const refs = parser.parseReferences(source, symbols);
+    const inheritRefs = refs.filter(r => r.kind === 'inheritance');
+    expect(inheritRefs.length).toBeGreaterThanOrEqual(1);
+  });
 });
 
 // ==========================================================

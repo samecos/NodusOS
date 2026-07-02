@@ -48,6 +48,7 @@ export type ReferenceKind =
   | 'call'
   | 'import'
   | 'inheritance'
+  | 'interface_implements'
   | 'type_use'
   | 'instantiation'
   | 'override'

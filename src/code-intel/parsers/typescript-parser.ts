@@ -3,7 +3,7 @@
 // ============================================================
 
 import { createRequire } from 'node:module';
-import type { Language, Symbol, Reference, SymbolKind, ImportBinding, ReexportInfo } from '../../common/types.js';
+import type { Language, Symbol, Reference, ReferenceKind, SymbolKind, ImportBinding, ReexportInfo } from '../../common/types.js';
 import type { LanguageParser, CallEdge } from '../language-parser.js';
 import { hashSymbolId } from './utils.js';
 
@@ -28,6 +28,7 @@ interface TSNode {
   endPosition: { row: number; column: number };
   children: TSNode[];
   namedChildren: TSNode[];
+  parent: TSNode | null;
   childForFieldName?(name: string): TSNode | null;
   isNamed(): boolean;
 }
@@ -232,16 +233,19 @@ export class TypeScriptParser implements LanguageParser {
       });
     }
 
-    // 继承关系
-    if (node.type === 'extends_clause' || node.type === 'implements_clause') {
-      const typeNode = node.namedChildren.find(
-        c => c.type === 'type_identifier' || c.type === 'identifier',
-      );
-      if (typeNode) {
+    // 继承关系（class extends / class implements / interface extends）
+    if (node.type === 'extends_clause' || node.type === 'implements_clause' || node.type === 'extends_type_clause') {
+      const parentDecl = node.parent;
+      const kind: ReferenceKind = node.type === 'implements_clause'
+        ? 'interface_implements'
+        : 'inheritance';
+
+      for (const typeNode of node.namedChildren) {
+        if (typeNode.type !== 'type_identifier' && typeNode.type !== 'identifier') continue;
         const name = typeNode.text;
         const target = symbolMap.get(name);
         refs.push({
-          id: hashSymbolId(filePath, `inherit_${name}`, 'inheritance', node.startPosition.row + 1),
+          id: hashSymbolId(filePath, `${kind}_${name}`, kind, typeNode.startPosition.row + 1),
           source_symbol_id: '',
           target_symbol_id: target?.id ?? `external:${name}`,
           location: {
@@ -249,7 +253,7 @@ export class TypeScriptParser implements LanguageParser {
             line_start: typeNode.startPosition.row + 1, line_end: typeNode.endPosition.row + 1,
             col_start: typeNode.startPosition.column + 1, col_end: typeNode.endPosition.column + 1,
           },
-          kind: 'inheritance',
+          kind,
         });
       }
     }
