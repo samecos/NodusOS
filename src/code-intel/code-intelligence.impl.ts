@@ -260,18 +260,22 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
     });
 
     // 解析当前文件跨文件引用
+    let referencesUpdated = refsAdded;
     if (parser instanceof TypeScriptParser) {
       const bindings = parser.parseImportBindings(source, filePath);
       const resolver = new ReferenceResolver(new ModuleResolver(this.projectRoot ?? dirname(filePath)), this.store);
       const fileRefs = this.store.refsFindByFile(filePath);
+      const before = fileRefs.map(r => r.target_symbol_id);
       resolver.resolveFileRefs(filePath, fileRefs, bindings);
+      const changed = fileRefs.filter((r, i) => r.target_symbol_id !== before[i]).length;
       this.store.refsUpsert(fileRefs);
+      referencesUpdated = changed;
     }
 
     return {
       symbolsAdded: added,
       symbolsRemoved: removed,
-      referencesUpdated: refsAdded,
+      referencesUpdated,
       durationMs: Date.now() - startTime,
     };
   }
