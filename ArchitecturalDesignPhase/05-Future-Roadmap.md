@@ -16,7 +16,7 @@
 | NodusShell | 高 | 多项目同时打开、会话恢复、优雅关闭顺序 |
 | ContextManager | 高 | 光标/选中上下文尚未被 IntentEngine 充分利用 |
 | KnowledgeStore | 中 | `better-sqlite3` 原生二进制兼容性问题导致部分测试失败 |
-| CodeIntelligence | 中 | tree-sitter 原生二进制加载失败；继承关系未完整建模（R1.4）；测试套件已补全；R1.3 已完成 |
+| CodeIntelligence | 中 | 类型关系已建模（R1.4）；跨文件引用解析（R1.3）已完成；测试套件已补全 |
 | EnvironmentManager | 中 | 运行时安装多为检测+提示，未真正自动下载安装；无外部服务（DB/Redis）发现 |
 | GitIntelligence | 高 | 缺少变更摘要、PR 级 diff 分析 |
 | FileWatcher | 高 | 大仓库下性能与防抖策略可优化 |

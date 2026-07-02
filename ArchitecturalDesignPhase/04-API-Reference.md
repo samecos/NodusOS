@@ -205,7 +205,7 @@ match intent_engine.parse(input, &context)? {
 ```rust
 struct QueryIntent {
     raw_text: String,
-    intent_type: IntentType,  // find_definition | find_references | call_graph | impact_analysis | change_history | symbol_overview | list_symbols | stats | analytics
+    intent_type: IntentType,  // find_definition | find_references | call_graph | impact_analysis | change_history | symbol_overview | list_symbols | stats | analytics | type_relationships
     confidence: f32,
     entities: IntentEntity,
 }
@@ -218,6 +218,7 @@ struct IntentEntity {
     author: Option<String>,
     sub_type: Option<String>,   // analytics 子类型，如 "most_called" / "unused_exports" / "todos"
     filter: Option<SymbolListFilter>, // list_symbols 过滤条件
+    relationship_kind: Option<String>, // type_relationships 子类型："subclasses" / "implementations" / "type_uses"
 }
 ```
 
@@ -304,7 +305,7 @@ enum ContextDelta {
 
 ---
 
-## 5. Code Intelligence ✅ v1.0 (基础实现), 🚧 v1.1 (跨文件引用 / 类型关系)
+## 5. Code Intelligence ✅ v1.0 (基础实现), ✅ v1.1 (跨文件引用 / 类型关系)
 
 ### 5.1 index_project
 
@@ -410,6 +411,54 @@ let refs = code_intel.find_references(&sym[0].id).await?;
 // → 14 条引用，含文件、行号、引用类型
 ```
 
+### 5.4.1 find_subclasses ✅ v1.1
+
+```rust
+async fn find_subclasses(
+    &self,
+    symbol_id: &SymbolId,
+) -> Result<Vec<Symbol>, CodeIntelError>;
+```
+
+返回继承自指定 class 的所有子类。
+
+**示例**：
+
+```rust
+let base = code_intel.find_symbol("BaseModel", Some(SymbolKind::Class), None, 1).await?;
+let subclasses = code_intel.find_subclasses(&base[0].id).await?;
+```
+
+### 5.4.2 find_implementations ✅ v1.1
+
+```rust
+async fn find_implementations(
+    &self,
+    symbol_id: &SymbolId,
+) -> Result<Vec<Symbol>, CodeIntelError>;
+```
+
+返回实现了指定 interface 的所有 class / type。
+
+**示例**：
+
+```rust
+let iface = code_intel.find_symbol("IModel", Some(SymbolKind::Interface), None, 1).await?;
+let impls = code_intel.find_implementations(&iface[0].id).await?;
+// → UserModel, OrderModel
+```
+
+### 5.4.3 find_type_uses ✅ v1.1
+
+```rust
+async fn find_type_uses(
+    &self,
+    symbol_id: &SymbolId,
+) -> Result<Vec<Symbol>, CodeIntelError>;
+```
+
+返回将指定类型用作参数、返回值或变量声明的所有符号。
+
 ### 5.5 call_graph
 
 ```rust
@@ -507,6 +556,18 @@ enum QueryResult {
     TodoList(Vec<TodoComment>),
     StatsReport(StatsReport),
     ChangeHeat(Vec<(String, u32)>),
+    TypeRelationshipList { root: Symbol, relationships: Vec<TypeRelationship> },
+}
+
+enum RelationshipKind {
+    Subclass,
+    Implementation,
+    TypeUse,
+}
+
+struct TypeRelationship {
+    kind: RelationshipKind,
+    symbol: Symbol,
 }
 ```
 

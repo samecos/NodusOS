@@ -587,3 +587,47 @@ function b(): string { return 'b'; }
     expect(edge!.to).toBe(bSym!.symbol_id);
   });
 });
+
+// TC-IT-CI-TR-001: 类型关系查询（实现、子类、类型使用）
+describe('CodeIntelligence Type Relationships', () => {
+  const tmpDir = join(tmpdir(), `nodus-type-rel-test-${Date.now()}`);
+  let store: KnowledgeStore;
+  let ci: CodeIntelligence;
+
+  beforeAll(async () => {
+    mkdirSync(join(tmpDir, 'src'), { recursive: true });
+    writeFileSync(join(tmpDir, 'package.json'), JSON.stringify({ name: 'type-rel-test' }));
+    writeFileSync(join(tmpDir, 'src', 'models.ts'), `
+export interface IModel {}
+export class UserModel implements IModel {}
+export class OrderModel implements IModel {}
+`);
+    writeFileSync(join(tmpDir, 'src', 'app.ts'), `
+import { IModel } from './models';
+export function save(model: IModel): void {}
+`);
+    store = new SqliteKnowledgeStore(':memory:');
+    ci = new CodeIntelligenceImpl(store);
+    await ci.indexProject(tmpDir, ['typescript']);
+  });
+
+  afterAll(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('TC-IT-CI-TR-001: query type_relationships returns implementations', async () => {
+    const result = await ci.query({
+      intentType: 'type_relationships',
+      confidence: 0.95,
+      rawText: '谁实现了 IModel',
+      entities: { symbolName: 'IModel', relationshipKind: 'implementations' },
+    });
+    expect(result.kind).toBe('type_relationship_list');
+    if (result.kind === 'type_relationship_list') {
+      const names = result.relationships.map(r => r.symbol.name);
+      expect(names).toContain('UserModel');
+      expect(names).toContain('OrderModel');
+    }
+  });
+});
