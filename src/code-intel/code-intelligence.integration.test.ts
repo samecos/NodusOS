@@ -97,6 +97,56 @@ describe('CodeIntelligence Integration', () => {
     }
   });
 
+  it('TC-IT-CI-KS-013: should route find_references intent', async () => {
+    const result = await ci.query({
+      intentType: 'find_references',
+      confidence: 0.95,
+      rawText: 'who calls refundOrder',
+      entities: { symbolName: 'refundOrder' },
+    });
+    expect(result.kind).toBe('reference_list');
+  });
+
+  it('TC-IT-CI-KS-014: should route call_graph intent', async () => {
+    const result = await ci.query({
+      intentType: 'call_graph',
+      confidence: 0.95,
+      rawText: 'call graph of refundOrder',
+      entities: { symbolName: 'refundOrder' },
+    });
+    expect(result.kind).toBe('call_graph');
+  });
+
+  it('TC-IT-CI-KS-015: should route impact_analysis intent', async () => {
+    const result = await ci.query({
+      intentType: 'impact_analysis',
+      confidence: 0.95,
+      rawText: 'impact of refundOrder',
+      entities: { symbolName: 'refundOrder' },
+    });
+    expect(result.kind).toBe('impact_report');
+  });
+
+  it('TC-IT-CI-KS-016: should route symbol_overview intent', async () => {
+    const result = await ci.query({
+      intentType: 'symbol_overview',
+      confidence: 0.95,
+      rawText: 'symbols in index.ts',
+      entities: { filePath: join(FIXTURE_DIR, 'src', 'index.ts') },
+    });
+    expect(result.kind).toBe('symbol_overview');
+  });
+
+  it('TC-IT-CI-KS-017: should route stats intent', async () => {
+    const result = await ci.query({
+      intentType: 'stats',
+      confidence: 0.95,
+      rawText: 'project stats',
+      entities: {},
+    });
+    expect(result.kind).toBe('stats_report');
+  });
+
   // TC-IT-CI-KS-005: impactAnalysis 应返回直接调用方
   it('should return direct callers in impact analysis', async () => {
     const syms = await ci.findSymbol('submitRefund');
