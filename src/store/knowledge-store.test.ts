@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SqliteKnowledgeStore } from './knowledge-store.impl.js';
-import type { Symbol, Reference, CallGraph, ProjectMeta } from '../common/types.js';
+import type { Symbol, Reference, CallGraph, ProjectMeta, SessionState } from '../common/types.js';
 
 // 测试辅助：创建测试符号
 function makeSymbol(overrides: Partial<Symbol> = {}): Symbol {
@@ -420,5 +420,62 @@ describe('KnowledgeStore', () => {
     const deps = store.dependenciesGet('/tmp/test-app-2');
     expect(deps).toHaveLength(1);
     expect(deps[0].name).toBe('typescript');
+  });
+
+  // ==========================================================
+  // TC-UT-STORE-015 ~ TC-UT-STORE-017: 会话状态
+  // ==========================================================
+  describe('session state', () => {
+    // TC-UT-STORE-015: 应保存并读取会话状态
+    it('TC-UT-STORE-015: should save and retrieve session state', () => {
+      const state: SessionState = {
+        project_root: '/tmp/project-a',
+        active_file: 'src/main.ts',
+        cursor_line: 42,
+        cursor_col: 12,
+        cursor_symbol: 'main',
+      };
+      store.sessionStateUpsert(state);
+      const got = store.sessionStateGet('/tmp/project-a');
+      expect(got).toBeDefined();
+      expect(got!.active_file).toBe('src/main.ts');
+      expect(got!.cursor_line).toBe(42);
+      expect(got!.cursor_col).toBe(12);
+      expect(got!.cursor_symbol).toBe('main');
+    });
+
+    // TC-UT-STORE-016: 应更新已有会话状态
+    it('TC-UT-STORE-016: should update existing session state', () => {
+      store.sessionStateUpsert({
+        project_root: '/tmp/project-b',
+        active_file: 'src/a.ts',
+        cursor_line: 1,
+        cursor_col: 1,
+        cursor_symbol: null,
+      });
+      store.sessionStateUpsert({
+        project_root: '/tmp/project-b',
+        active_file: 'src/b.ts',
+        cursor_line: 10,
+        cursor_col: 5,
+        cursor_symbol: 'foo',
+      });
+      const got = store.sessionStateGet('/tmp/project-b');
+      expect(got!.active_file).toBe('src/b.ts');
+      expect(got!.cursor_line).toBe(10);
+    });
+
+    // TC-UT-STORE-017: 应删除会话状态
+    it('TC-UT-STORE-017: should remove session state', () => {
+      store.sessionStateUpsert({
+        project_root: '/tmp/project-c',
+        active_file: 'src/c.ts',
+        cursor_line: 3,
+        cursor_col: 3,
+        cursor_symbol: null,
+      });
+      store.sessionStateRemove('/tmp/project-c');
+      expect(store.sessionStateGet('/tmp/project-c')).toBeUndefined();
+    });
   });
 });
