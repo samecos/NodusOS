@@ -273,7 +273,67 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
   }
 
   async callGraph(symbolId: SymbolId, direction: CallDirection, maxDepth: number): Promise<CallGraph | null> {
-    return this.store.callgraphGet(symbolId, direction, maxDepth);
+    const root = this.store.symbolsFindById(symbolId);
+    if (!root) return null;
+
+    const nodeIds = new Set<SymbolId>([symbolId]);
+    const edges: CallGraphEdge[] = [];
+    const visited = new Map<SymbolId, number>();
+    const queue: Array<{ id: SymbolId; depth: number }> = [{ id: symbolId, depth: 0 }];
+    visited.set(symbolId, 0);
+
+    while (queue.length > 0) {
+      const { id, depth } = queue.shift()!;
+      if (depth >= maxDepth) continue;
+
+      if (direction === 'callees' || direction === 'both') {
+        const outgoing = this.store.refsFindBySource(id).filter(r => r.kind === 'call');
+        for (const ref of outgoing) {
+          const targetId = ref.target_symbol_id;
+          if (!targetId) continue;
+          nodeIds.add(targetId);
+          edges.push({ from: id, to: targetId, kind: ref.kind });
+          if (!visited.has(targetId) || visited.get(targetId)! > depth + 1) {
+            visited.set(targetId, depth + 1);
+            queue.push({ id: targetId, depth: depth + 1 });
+          }
+        }
+      }
+
+      if (direction === 'callers' || direction === 'both') {
+        const incoming = this.store.refsFindByTarget(id).filter(r => r.kind === 'call');
+        for (const ref of incoming) {
+          const sourceId = ref.source_symbol_id;
+          if (!sourceId) continue;
+          nodeIds.add(sourceId);
+          edges.push({ from: sourceId, to: id, kind: ref.kind });
+          if (!visited.has(sourceId) || visited.get(sourceId)! > depth + 1) {
+            visited.set(sourceId, depth + 1);
+            queue.push({ id: sourceId, depth: depth + 1 });
+          }
+        }
+      }
+    }
+
+    const nodes: CallGraphNode[] = [];
+    for (const id of nodeIds) {
+      const sym = this.store.symbolsFindById(id);
+      nodes.push({
+        symbol_id: id,
+        symbol_name: sym?.name ?? id,
+        file_path: sym?.location.file_path ?? '',
+        line: sym?.location.line_start ?? 0,
+        depth: visited.get(id) ?? 0,
+      });
+    }
+
+    return {
+      root_symbol_id: symbolId,
+      direction,
+      max_depth: maxDepth,
+      nodes,
+      edges,
+    };
   }
 
   async symbolsInFile(filePath: string): Promise<Symbol[]> {

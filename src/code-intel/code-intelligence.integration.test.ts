@@ -335,3 +335,54 @@ export function helperB(): string { return 'b'; }
     expect(unchangedStateAfter!.indexed_at).toBe(unchangedStateBefore!.indexed_at);
   });
 });
+
+// TC-IT-CI-KS-012: callGraph 调用图构建
+describe('CodeIntelligence CallGraph', () => {
+  const tmpDir = join(tmpdir(), `nodus-callgraph-test-${Date.now()}`);
+  let store: KnowledgeStore;
+  let ci: CodeIntelligence;
+
+  beforeAll(async () => {
+    mkdirSync(join(tmpDir, 'src'), { recursive: true });
+    writeFileSync(join(tmpDir, 'src', 'chain.ts'), `
+export async function levelA() {
+  return levelB();
+}
+
+async function levelB() {
+  return levelC();
+}
+
+async function levelC() {
+  return 'done';
+}
+`);
+    writeFileSync(join(tmpDir, 'package.json'), JSON.stringify({ name: 'callgraph-test' }));
+
+    store = new SqliteKnowledgeStore(':memory:');
+    ci = new CodeIntelligenceImpl(store);
+    await ci.indexProject(tmpDir, ['typescript']);
+  });
+
+  afterAll(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('TC-IT-CI-KS-012: should build call graph with callers and callees', async () => {
+    const syms = await ci.findSymbol('levelA');
+    expect(syms.length).toBeGreaterThanOrEqual(1);
+    const levelA = syms.find(s => s.name === 'levelA')!;
+
+    const graph = await ci.callGraph(levelA.id, 'both', 3);
+    expect(graph).not.toBeNull();
+
+    const nodeNames = new Set(graph!.nodes.map(n => n.symbol_name));
+    expect(nodeNames).toContain('levelA');
+    expect(nodeNames).toContain('levelB');
+    expect(nodeNames).toContain('levelC');
+
+    const edges = graph!.edges;
+    expect(edges.some(e => e.from === levelA.id)).toBe(true);
+  });
+});
