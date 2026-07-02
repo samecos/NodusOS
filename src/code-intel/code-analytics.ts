@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { Symbol, SymbolId, SymbolKind, Reference } from '../common/types.js';
+import type { TypeRelationship, RelationshipKind } from './code-intelligence.js';
 
 export interface SymbolMetric {
   symbol: Symbol;
@@ -72,6 +73,9 @@ export interface CodeAnalytics {
 
   /** 给定时间范围内的变更热点文件 Top-N */
   mostChangedFiles(timeRange: { from: Date; to: Date } | undefined, limit: number): Promise<{ filePath: string; changeCount: number }[]>;
+
+  /** 查询某个符号的指定类型关系（子类、实现、类型使用） */
+  typeRelationships(symbolId: SymbolId, kind: RelationshipKind): Promise<TypeRelationship[]>;
 }
 
 export type { Symbol, SymbolId, SymbolKind, Reference } from '../common/types.js';

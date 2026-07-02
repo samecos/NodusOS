@@ -6,8 +6,9 @@ import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative, extname } from 'path';
 import { execSync } from 'child_process';
 import type {
-  Symbol, SymbolId,
+  Symbol, SymbolId, ReferenceKind,
 } from '../common/types.js';
+import type { RelationshipKind, TypeRelationship } from './code-intelligence.js';
 import type { KnowledgeStore } from '../store/knowledge-store.js';
 import type {
   CodeAnalytics,
@@ -274,6 +275,22 @@ export class DefaultCodeAnalytics implements CodeAnalytics {
     return scores
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
+  }
+
+  async typeRelationships(symbolId: SymbolId, kind: RelationshipKind): Promise<TypeRelationship[]> {
+    const kindFilter: Record<RelationshipKind, ReferenceKind> = {
+      subclass: 'inheritance',
+      implementation: 'interface_implements',
+      type_use: 'type_use',
+    };
+    const refs = this.store.refsFindByTarget(symbolId).filter(r => r.kind === kindFilter[kind]);
+    const symbols = this.symbolMap();
+    return refs
+      .map(r => {
+        const sym = symbols.get(r.source_symbol_id);
+        return sym ? { kind, symbol: sym } : null;
+      })
+      .filter((r): r is TypeRelationship => r !== null);
   }
 
   private estimateParamCount(signature?: string): number {

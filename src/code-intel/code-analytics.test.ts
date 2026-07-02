@@ -296,4 +296,27 @@ describe('CodeAnalytics', () => {
     expect(results[0].filePath).toBe('hot.ts');
     expect(results[0].changeCount).toBeGreaterThan(results[1].changeCount);
   });
+
+  // ==========================================================
+  // TC-UT-CA-014: typeRelationships 返回实现关系
+  // ==========================================================
+  it('TC-UT-CA-014: typeRelationships returns implementations', async () => {
+    store.symbolsUpsert([
+      makeSymbol({ name: 'IUserService', id: 'sym_iuser_service', kind: 'interface' }),
+      makeSymbol({ name: 'UserService', id: 'sym_user_service', kind: 'class' }),
+      makeSymbol({ name: 'MockUserService', id: 'sym_mock_user_service', kind: 'class' }),
+    ]);
+    store.refsUpsert([
+      makeRef({ source_symbol_id: 'sym_user_service', target_symbol_id: 'sym_iuser_service', kind: 'interface_implements' }),
+      makeRef({ source_symbol_id: 'sym_mock_user_service', target_symbol_id: 'sym_iuser_service', kind: 'interface_implements' }),
+      makeRef({ source_symbol_id: 'sym_user_service', target_symbol_id: 'sym_iuser_service', kind: 'type_use' }),
+    ]);
+
+    const iface = store.symbolsFindByName('IUserService', 'interface', 1)[0]!;
+    const rels = await analytics.typeRelationships(iface.id, 'implementation');
+
+    expect(rels.length).toBeGreaterThanOrEqual(1);
+    expect(rels.every(r => r.kind === 'implementation')).toBe(true);
+    expect(rels.map(r => r.symbol.name).sort()).toEqual(['MockUserService', 'UserService']);
+  });
 });
