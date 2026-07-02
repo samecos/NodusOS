@@ -308,7 +308,7 @@ npm test
 #### v1.1 基础夯实
 - [x] R1.3 跨文件引用解析增强（`tsconfig.json` paths / index re-export / namespace import）
 - [x] R1.4 类型关系建模（`inheritance` / `implements` / `type_use`）
-- [ ] R1.5 TerminalRenderer 调用图 ASCII 渲染
+- [x] R1.5 TerminalRenderer 调用图 ASCII 渲染
 - [ ] R1.6 配置热加载（`~/.nodus/config.json` 变更即时生效）
 - [ ] R1.7 会话恢复（重启后恢复项目、文件、光标位置）
 - [ ] R1.8 错误处理与降级卡片统一
