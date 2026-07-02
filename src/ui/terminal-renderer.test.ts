@@ -327,4 +327,45 @@ describe('TerminalRenderer', () => {
     expect(out).toContain('callerA');
     expect(out).toContain('calleeC');
   });
+
+  // TC-UT-UI-016: 边类型应被标注
+  it('TC-UT-UI-016: should label edge kinds', () => {
+    const out = renderer.render({
+      kind: 'call_graph',
+      graph: {
+        root_symbol_id: 'root',
+        direction: 'callees',
+        max_depth: 3,
+        nodes: [
+          { symbol_id: 'root', symbol_name: 'Base', file_path: 'src/a.ts', line: 1, depth: 0 },
+          { symbol_id: 'child', symbol_name: 'Child', file_path: 'src/b.ts', line: 5, depth: 1 },
+        ],
+        edges: [{ from: 'root', to: 'child', kind: 'inheritance' }],
+      },
+    });
+    expect(out).toContain('inheritance');
+    expect(out).toContain('Child');
+  });
+
+  // TC-UT-UI-017: 超过 max_depth 应显示截断提示
+  it('TC-UT-UI-017: should indicate depth truncation', () => {
+    const out = renderer.render({
+      kind: 'call_graph',
+      graph: {
+        root_symbol_id: 'root',
+        direction: 'callees',
+        max_depth: 1,
+        nodes: [
+          { symbol_id: 'root', symbol_name: 'main', file_path: 'src/a.ts', line: 1, depth: 0 },
+          { symbol_id: 'child', symbol_name: 'child', file_path: 'src/b.ts', line: 5, depth: 1 },
+          { symbol_id: 'grandchild', symbol_name: 'grandchild', file_path: 'src/c.ts', line: 10, depth: 2 },
+        ],
+        edges: [
+          { from: 'root', to: 'child', kind: 'call' },
+          { from: 'child', to: 'grandchild', kind: 'call' },
+        ],
+      },
+    });
+    expect(out).toContain('已截断');
+  });
 });

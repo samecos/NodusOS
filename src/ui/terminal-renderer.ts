@@ -263,31 +263,44 @@ export class TerminalRenderer implements UIRenderer {
       prefix: string,
       isLast: boolean,
       visited: Set<string>,
+      depth: number,
+      parentId?: string,
     ): string => {
       if (visited.has(id)) {
-        return `${prefix}${isLast ? '└─ ' : '├─ '}${formatNode(id)} ${c('(cycle)', RED)}\n`;
+        const edgeLabel = parentId ? ` ${c(`· ${graph.edges.find(e => e.from === parentId && e.to === id)?.kind ?? 'unknown'}`, DIM)}` : '';
+        return `${prefix}${isLast ? '└─ ' : '├─ '}${formatNode(id)}${edgeLabel} ${c('(cycle)', RED)}\n`;
       }
       visited.add(id);
 
-      let result = `${prefix}${isLast ? '└─ ' : '├─ '}${formatNode(id)}\n`;
+      const edgeLabel = parentId
+        ? ` ${c(`· ${graph.edges.find(e => e.from === parentId && e.to === id)?.kind ?? 'unknown'}`, DIM)}`
+        : '';
+      const connector = isLast ? '└─ ' : '├─ ';
       const kids = adj.get(id) ?? [];
+
+      // 超过最大深度且仍有子节点时截断，避免继续递归
+      if (depth >= graph.max_depth && kids.length > 0) {
+        return `${prefix}${connector}${formatNode(id)}${edgeLabel} ${c(`(... 已截断，最大深度 ${graph.max_depth})`, RED)}\n`;
+      }
+
+      let result = `${prefix}${connector}${formatNode(id)}${edgeLabel}\n`;
       for (let i = 0; i < kids.length; i++) {
         const childLast = i === kids.length - 1;
         const nextPrefix = prefix + (isLast ? '   ' : '│  ');
-        result += printTree(adj, kids[i]!, nextPrefix, childLast, visited);
+        result += printTree(adj, kids[i]!, nextPrefix, childLast, visited, depth + 1, id);
       }
       return result;
     };
 
     if (graph.direction === 'callers') {
-      out += printTree(reverseAdj, rootId, '  ', true, new Set());
+      out += printTree(reverseAdj, rootId, '  ', true, new Set(), 0);
     } else if (graph.direction === 'callees') {
-      out += printTree(forwardAdj, rootId, '  ', true, new Set());
+      out += printTree(forwardAdj, rootId, '  ', true, new Set(), 0);
     } else {
       out += `\n${c('上游', BOLD)}\n`;
-      out += printTree(reverseAdj, rootId, '  ', true, new Set());
+      out += printTree(reverseAdj, rootId, '  ', true, new Set(), 0);
       out += `\n${c('下游', BOLD)}\n`;
-      out += printTree(forwardAdj, rootId, '  ', true, new Set());
+      out += printTree(forwardAdj, rootId, '  ', true, new Set(), 0);
     }
 
     return out;
