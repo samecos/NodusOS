@@ -7,7 +7,7 @@ import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { IntentError, QueryIntent } from '../intent/intent-engine.js';
 import type { ProjectMeta } from '../common/types.js';
 import type { EnvStatus } from '../env-mgr/environment-manager.js';
-import type { NodusError } from '../common/errors.js';
+import { type NodusError } from '../common/errors.js';
 
 export type CardKind =
   | 'symbol_list'
@@ -102,4 +102,30 @@ export interface UIRenderer {
 
   /** 渲染指定文件的代码片段 */
   renderCodeSnippet(filePath: string, lineRange: { start: number; end: number }): string;
+}
+
+// ============================================================
+// 错误卡片构建辅助函数
+// ============================================================
+
+/**
+ * 构造统一的 NodusError 降级卡片。
+ *
+ * @param uiRenderer 渲染器实例
+ * @param error 要展示的错误
+ * @param module 来源模块名
+ * @param title 卡片标题，默认为 "运行降级提示"
+ * @returns 包含 kind='error' 的 Card 对象
+ */
+export function createErrorCard(
+  uiRenderer: UIRenderer,
+  error: NodusError,
+  module: string,
+  title = '运行降级提示',
+): Card {
+  return uiRenderer.createCard(
+    `error-${error.code}-${Date.now()}`,
+    title,
+    { kind: 'error', error, module },
+  );
 }

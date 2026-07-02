@@ -3,7 +3,7 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { NodusError, CodeIntelError, EnvError, GitError, VoiceError } from './errors.js';
+import { NodusError, CodeIntelError, EnvError, GitError, VoiceError, getDegradationSuggestion } from './errors.js';
 
 describe('NodusError', () => {
   // TC-UT-ERR-001: 统一错误基类应携带 code 与 cause
@@ -49,5 +49,12 @@ describe('NodusError', () => {
     const err = new EnvError(EnvError.COMMAND_FAILED, 'Command failed', { cause });
 
     expect(err.cause).toBe(cause);
+  });
+
+  // TC-UT-ERR-005: getDegradationSuggestion 应返回对应建议并兜底
+  it('TC-UT-ERR-005: should return degradation suggestion by code with fallback', () => {
+    expect(getDegradationSuggestion(CodeIntelError.NO_PARSER)).toContain('native');
+    expect(getDegradationSuggestion(VoiceError.MICROPHONE_NOT_AVAILABLE)).toContain('文本输入');
+    expect(getDegradationSuggestion('UNKNOWN_CODE')).toContain('意外问题');
   });
 });

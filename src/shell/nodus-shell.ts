@@ -15,7 +15,7 @@ import { PatternIntentEngine } from '../intent/intent-engine.impl.js';
 import { SystemVoicePipeline } from '../voice/voice-pipeline.impl.js';
 import { TerminalRenderer } from '../ui/terminal-renderer.js';
 import type { EventBus } from './event-bus.js';
-import type { UIRenderer } from '../ui/ui-renderer.js';
+import { createErrorCard, type UIRenderer } from '../ui/ui-renderer.js';
 import type { ContextManager } from '../context/context-manager.js';
 import type { CodeIntelligence } from '../code-intel/code-intelligence.js';
 import type { EnvironmentManager } from '../env-mgr/environment-manager.js';
@@ -186,10 +186,11 @@ export class NodusShell {
         ? err
         : new EnvError(EnvError.COMMAND_FAILED, `Failed to open project ${projectPath}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
       this.eventBus.emit({ kind: 'error', module: 'environment', error: nodusErr });
-      console.error(this.uiRenderer.renderCard(this.uiRenderer.createCard(
-        `error-${nodusErr.code}`,
+      console.error(this.uiRenderer.renderCard(createErrorCard(
+        this.uiRenderer,
+        nodusErr,
+        'environment',
         '打开项目失败',
-        { kind: 'error', error: nodusErr, module: 'environment' },
       )));
     }
   }
@@ -197,32 +198,40 @@ export class NodusShell {
   async handleQuery(text: string): Promise<unknown> {
     this.eventBus.emit({ kind: 'query:received', text });
 
-    const context = this.contextMgr.snapshot();
-    const result = this.intentEngine.parse(
-      { source: 'text', text, locale: this.config.locale ?? 'zh-CN' },
-      context,
-    );
+    try {
+      const context = this.contextMgr.snapshot();
+      const result = this.intentEngine.parse(
+        { source: 'text', text, locale: this.config.locale ?? 'zh-CN' },
+        context,
+      );
 
-    if ('kind' in result) {
-      // IntentError
-      return result;
+      if ('kind' in result) {
+        // IntentError
+        return result;
+      }
+
+      this.contextMgr.recordQuery(text, result.intentType);
+      const queryResult = await this.codeIntel.query(result);
+      this.eventBus.emit({ kind: 'query:result', result: queryResult });
+
+      // 记录查询历史
+      this.store.historyRecord({
+        raw_text: text,
+        intent_type: result.intentType,
+        confidence: result.confidence,
+        latency_ms: 0,
+        result_count: this.countResults(queryResult),
+        timestamp: new Date().toISOString(),
+      });
+
+      return queryResult;
+    } catch (err) {
+      const nodusErr = err instanceof NodusError
+        ? err
+        : new NodusError('SHELL_QUERY_FAILED', err instanceof Error ? err.message : String(err), { cause: err });
+      this.eventBus.emit({ kind: 'error', module: 'shell', error: nodusErr });
+      return createErrorCard(this.uiRenderer, nodusErr, 'shell', '查询失败');
     }
-
-    this.contextMgr.recordQuery(text, result.intentType);
-    const queryResult = await this.codeIntel.query(result);
-    this.eventBus.emit({ kind: 'query:result', result: queryResult });
-
-    // 记录查询历史
-    this.store.historyRecord({
-      raw_text: text,
-      intent_type: result.intentType,
-      confidence: result.confidence,
-      latency_ms: 0,
-      result_count: this.countResults(queryResult),
-      timestamp: new Date().toISOString(),
-    });
-
-    return queryResult;
   }
 
   async handleQueryFormatted(text: string): Promise<string> {
@@ -261,11 +270,7 @@ export class NodusShell {
         ? err
         : new NodusError('SHELL_QUERY_FAILED', err instanceof Error ? err.message : String(err), { cause: err });
       this.eventBus.emit({ kind: 'error', module: 'shell', error: nodusErr });
-      return this.uiRenderer.renderCard(this.uiRenderer.createCard(
-        `error-${nodusErr.code}`,
-        '查询失败',
-        { kind: 'error', error: nodusErr, module: 'shell' },
-      ));
+      return this.uiRenderer.renderCard(createErrorCard(this.uiRenderer, nodusErr, 'shell', '查询失败'));
     }
   }
 
@@ -341,10 +346,11 @@ export class NodusShell {
 
     // 错误事件 → 统一降级卡片
     this.eventBus.on('error', (event) => {
-      const card = this.uiRenderer.createCard(
-        `error-${event.error.code}`,
+      const card = createErrorCard(
+        this.uiRenderer,
+        event.error,
+        event.module,
         '运行降级提示',
-        { kind: 'error', error: event.error, module: event.module },
       );
       console.error(this.uiRenderer.renderCard(card));
     });

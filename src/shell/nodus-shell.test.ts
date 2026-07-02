@@ -213,4 +213,30 @@ describe('NodusShell', () => {
       shell.codeIntel.query = originalQuery;
     }
   });
+
+  // TC-UT-SH-010: openProject 失败时应降级并继续运行
+  it('TC-UT-SH-010: should degrade when openProject fails', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    const emptyProject = mkdtempSync(join(currentTmpDir, 'empty-project-'));
+    const configPath = join(currentTmpDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      projectPaths: [emptyProject],
+      dbPath: ':memory:',
+      locale: 'zh-CN',
+    }, null, 2));
+
+    currentConfigManager = new JsonConfigManager(configPath);
+    shell = new NodusShell(currentConfigManager);
+
+    const errors: Array<{ module: string; code: string }> = [];
+    shell.eventBus.on('error', (event) => {
+      errors.push({ module: event.module, code: event.error.code });
+    });
+
+    await shell.bootstrap();
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some(e => e.code === 'ENV_UNKNOWN_PROJECT_TYPE')).toBe(true);
+    expect(shell.getModule('code_intelligence')).toBeDefined();
+  });
 });

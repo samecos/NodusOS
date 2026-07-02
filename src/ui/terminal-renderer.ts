@@ -8,8 +8,7 @@ import type { IntentError, QueryIntent } from '../intent/intent-engine.js';
 import type { Symbol, Reference, ReferenceKind, CallGraph, CallGraphNode, ProjectMeta } from '../common/types.js';
 import type { ImpactReport, ChangeRecord, TypeRelationship } from '../code-intel/code-intelligence.js';
 import type { SymbolMetric, ModuleCoupling, CallChain, TodoComment } from '../code-intel/code-analytics.js';
-import type { NodusError } from '../common/errors.js';
-import { CodeIntelError, EnvError, GitError, VoiceError } from '../common/errors.js';
+import { type NodusError, getDegradationSuggestion } from '../common/errors.js';
 
 const BLUE = '\x1b[36m';
 const GREEN = '\x1b[32m';
@@ -26,23 +25,6 @@ function c(text: string, color: string): string {
 function indent(level: number): string {
   return '  '.repeat(level);
 }
-
-const DEGRADATION_SUGGESTIONS: Record<string, string> = {
-  [CodeIntelError.UNSUPPORTED_FILE]: '该文件类型暂不支持解析，可尝试用文本查询其他文件。',
-  [CodeIntelError.NO_PARSER]: '解析器未就绪，请确认 native 依赖已正确构建。',
-  [CodeIntelError.PARSE_FAILED]: '文件解析失败，请检查语法或稍后重试。',
-  [CodeIntelError.NOT_INDEXED]: '文件尚未索引，可等待索引完成后再查询。',
-  [EnvError.UNKNOWN_PROJECT_TYPE]: '无法识别项目类型，请检查项目结构或手动指定运行时。',
-  [EnvError.RUNTIME_INSTALL_FAILED]: '运行时安装失败，可尝试手动安装后重启。',
-  [EnvError.DEP_INSTALL_FAILED]: '依赖安装失败，建议检查网络或包管理器日志。',
-  [EnvError.COMMAND_FAILED]: '外部命令执行失败，请确认命令可用。',
-  [EnvError.RUNTIME_NOT_FOUND]: '未找到指定运行时，请先安装对应版本。',
-  [GitError.NOT_A_REPO]: '当前目录不是 git 仓库，无法提供变更历史。',
-  [GitError.COMMAND_FAILED]: 'git 命令执行失败，请确认 git 已安装且仓库状态正常。',
-  [VoiceError.MICROPHONE_NOT_AVAILABLE]: '麦克风不可用，已切换为文本输入模式。',
-  [VoiceError.AUDIO_FILE_NOT_FOUND]: '音频文件不存在，请确认录音已完成。',
-  [VoiceError.TRANSCRIPTION_FAILED]: '语音识别失败，请重试或切换为键盘输入。',
-};
 
 export class TerminalRenderer implements UIRenderer {
   render(result: QueryResult): string {
@@ -104,7 +86,13 @@ export class TerminalRenderer implements UIRenderer {
   createCard(
     id: string,
     title: string,
-    data: QueryResult | IntentError | ProjectMeta | QueryIntent[] | { title: string; body: string },
+    data:
+      | QueryResult
+      | IntentError
+      | ProjectMeta
+      | QueryIntent[]
+      | { title: string; body: string }
+      | { kind: 'error'; error: NodusError; module: string },
     ttlSeconds?: number,
   ): Card {
     const kind = this.inferCardKind(data);
@@ -476,7 +464,7 @@ export class TerminalRenderer implements UIRenderer {
   }
 
   private renderNodusErrorCard(error: NodusError, module: string): string {
-    const suggestion = DEGRADATION_SUGGESTIONS[error.code] ?? '系统遇到意外问题，请稍后重试或查看日志。';
+    const suggestion = getDegradationSuggestion(error.code);
     let out = c('\n⚠ 运行降级提示', YELLOW) + '\n';
     out += `  来源模块: ${c(module, DIM)}\n`;
     out += `  错误码:   ${c(error.code, RED)}\n`;

@@ -63,3 +63,32 @@ export class VoiceError extends NodusError {
     super(code, message, options);
   }
 }
+
+// ============================================================
+// 降级建议映射
+// ============================================================
+
+const DEGRADATION_SUGGESTIONS: Record<string, string> = {
+  [CodeIntelError.UNSUPPORTED_FILE]: '该文件类型暂不支持解析，可尝试用文本查询其他文件。',
+  [CodeIntelError.NO_PARSER]: '解析器未就绪，请确认 native 依赖已正确构建。',
+  [CodeIntelError.PARSE_FAILED]: '文件解析失败，请检查语法或稍后重试。',
+  [CodeIntelError.NOT_INDEXED]: '文件尚未索引，可等待索引完成后再查询。',
+  [EnvError.UNKNOWN_PROJECT_TYPE]: '无法识别项目类型，请检查项目结构或手动指定运行时。',
+  [EnvError.RUNTIME_INSTALL_FAILED]: '运行时安装失败，可尝试手动安装后重启。',
+  [EnvError.DEP_INSTALL_FAILED]: '依赖安装失败，建议检查网络或包管理器日志。',
+  [EnvError.COMMAND_FAILED]: '外部命令执行失败，请确认命令可用。',
+  [EnvError.RUNTIME_NOT_FOUND]: '未找到指定运行时，请先安装对应版本。',
+  [GitError.NOT_A_REPO]: '当前目录不是 git 仓库，无法提供变更历史。',
+  [GitError.COMMAND_FAILED]: 'git 命令执行失败，请确认 git 已安装且仓库状态正常。',
+  [VoiceError.MICROPHONE_NOT_AVAILABLE]: '麦克风不可用，已切换为文本输入模式。',
+  [VoiceError.AUDIO_FILE_NOT_FOUND]: '音频文件不存在，请确认录音已完成。',
+  [VoiceError.TRANSCRIPTION_FAILED]: '语音识别失败，请重试或切换为键盘输入。',
+  [VoiceError.RECORDING_NOT_SUPPORTED]: '当前平台不支持录音，已切换为文本输入模式。',
+  [VoiceError.RECORDING_FAILED]: '录音启动失败，请检查麦克风权限或切换为键盘输入。',
+  [VoiceError.RECORDING_NO_OUTPUT]: '录音无输出，请确认麦克风可用或切换为键盘输入。',
+};
+
+/** 根据错误码获取降级建议 */
+export function getDegradationSuggestion(code: string): string {
+  return DEGRADATION_SUGGESTIONS[code] ?? '系统遇到意外问题，请稍后重试或查看日志。';
+}
