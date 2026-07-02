@@ -1,5 +1,5 @@
 // ============================================================
-// ConfigManager 单元测试 — TC-UT-CFG-001 ~ TC-UT-CFG-006
+// ConfigManager 单元测试 — TC-UT-CFG-001 ~ TC-UT-CFG-009
 // ============================================================
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
