@@ -6,8 +6,14 @@
 import type { ProjectMeta } from '../common/types.js';
 import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { NodusError } from '../common/errors.js';
+import type { NodusConfig } from '../common/config.js';
 
 // ---- 标准事件定义 ----
+
+export interface ConfigChangedEvent {
+  kind: 'config:changed';
+  config: NodusConfig;
+}
 
 export interface ProjectOpenedEvent {
   kind: 'project:opened';
@@ -65,6 +71,7 @@ export interface ErrorEvent {
 
 /** 所有标准事件的联合类型 */
 export type NodusEvent =
+  | ConfigChangedEvent
   | ProjectOpenedEvent
   | EnvReadyEvent
   | IndexReadyEvent

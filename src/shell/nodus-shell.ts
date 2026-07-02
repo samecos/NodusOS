@@ -23,7 +23,7 @@ import type { FileWatcher } from '../file-watcher/file-watcher.js';
 import type { IntentEngine, QueryIntent } from '../intent/intent-engine.js';
 import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { VoicePipeline } from '../voice/voice-pipeline.js';
-import type { NodusConfig } from '../common/config.js';
+import type { ConfigManager, NodusConfig } from '../common/config.js';
 
 export { type NodusConfig } from '../common/config.js';
 
@@ -39,16 +39,25 @@ export class NodusShell {
   readonly voicePipeline: VoicePipeline;
   readonly uiRenderer: UIRenderer;
 
+  private configManager: ConfigManager;
   private config: NodusConfig;
   private modules = new Map<string, unknown>();
+  private unsubscribeConfig?: () => void;
 
-  constructor(config: NodusConfig) {
-    this.config = config;
+  constructor(configManager: ConfigManager) {
+    this.configManager = configManager;
+    this.config = configManager.get();
     this.eventBus = new SimpleEventBus();
 
+    // 订阅配置变更，保持 this.config 最新并转发到事件总线
+    this.unsubscribeConfig = configManager.onChange((cfg) => {
+      this.config = cfg;
+      this.eventBus.emit({ kind: 'config:changed', config: cfg });
+    });
+
     // Phase 1: 基础设施
-    this.store = new SqliteKnowledgeStore(config.dbPath ?? ':memory:');
-    this.contextMgr = new DefaultContextManager(config.projectPaths[0] ?? '/');
+    this.store = new SqliteKnowledgeStore(this.config.dbPath ?? ':memory:');
+    this.contextMgr = new DefaultContextManager(this.config.projectPaths[0] ?? '/');
 
     // Phase 2: 能力模块
     this.codeIntel = new CodeIntelligenceImpl(this.store);
@@ -222,6 +231,7 @@ export class NodusShell {
     console.log('[Nodus] Shutting down...');
     this.fileWatcher.pause();
     await this.voicePipeline.stop();
+    this.unsubscribeConfig?.();
     this.store.close();
     this.eventBus.clear();
     console.log('[Nodus] Goodbye.');

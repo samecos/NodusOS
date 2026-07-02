@@ -11,14 +11,15 @@ const PROJECTS = process.argv.slice(2);
 
 async function main() {
   const configManager = new JsonConfigManager();
-  const config = configManager.get();
+  const initialConfig = configManager.get();
 
   // 命令行传入的项目路径覆盖配置文件
   if (PROJECTS.length > 0) {
-    config.projectPaths = PROJECTS;
+    initialConfig.projectPaths = PROJECTS;
+    configManager.set('projectPaths', PROJECTS);
   }
 
-  const shell = new NodusShell(config);
+  const shell = new NodusShell(configManager);
 
   await shell.bootstrap();
 
