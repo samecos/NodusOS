@@ -124,4 +124,37 @@ describe('JsonConfigManager', () => {
     expect(changes[changes.length - 1]!.locale).toBe('ja-JP');
     manager.close();
   });
+
+  // TC-UT-CFG-008: 外部修改配置文件应触发 hot reload
+  it('TC-UT-CFG-008: should hot-reload on external file change', async () => {
+    writeFileSync(configPath, JSON.stringify({ locale: 'en-US' }, null, 2));
+    const manager = new JsonConfigManager(configPath);
+    const changes: string[] = [];
+    manager.onChange((cfg) => changes.push(cfg.locale));
+
+    writeFileSync(configPath, JSON.stringify({ locale: 'fr-FR' }, null, 2));
+    await wait(250);
+
+    expect(manager.get('locale')).toBe('fr-FR');
+    expect(changes[changes.length - 1]).toBe('fr-FR');
+    manager.close();
+  });
+
+  // TC-UT-CFG-009: 多次快速写入应被去抖动
+  it('TC-UT-CFG-009: should debounce rapid file changes', async () => {
+    writeFileSync(configPath, JSON.stringify({ locale: 'en-US' }, null, 2));
+    const manager = new JsonConfigManager(configPath);
+    const changes: string[] = [];
+    manager.onChange((cfg) => changes.push(cfg.locale));
+
+    for (let i = 0; i < 5; i++) {
+      writeFileSync(configPath, JSON.stringify({ locale: `locale-${i}` }, null, 2));
+      await wait(30);
+    }
+    await wait(250);
+
+    expect(changes.length).toBeLessThan(5);
+    expect(manager.get('locale')).toBe('locale-4');
+    manager.close();
+  });
 });
