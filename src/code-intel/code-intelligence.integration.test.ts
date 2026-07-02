@@ -436,3 +436,47 @@ async function levelC() {
     expect(edges.some(e => e.from === levelA.id)).toBe(true);
   });
 });
+
+// TC-IT-CI-KS-018 ~ TC-IT-CI-KS-019: indexFile 增量更新
+describe('CodeIntelligence indexFile incremental update', () => {
+  const tmpDir = join(tmpdir(), `nodus-indexfile-test-${Date.now()}`);
+  let store: KnowledgeStore;
+  let ci: CodeIntelligence;
+
+  beforeAll(async () => {
+    mkdirSync(join(tmpDir, 'src'), { recursive: true });
+    writeFileSync(join(tmpDir, 'src', 'a.ts'), `export function helperA(): string { return 'a'; }`);
+    writeFileSync(join(tmpDir, 'package.json'), JSON.stringify({ name: 'indexfile-test' }));
+
+    store = new SqliteKnowledgeStore(':memory:');
+    ci = new CodeIntelligenceImpl(store);
+    await ci.indexProject(tmpDir, ['typescript']);
+  });
+
+  afterAll(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('TC-IT-CI-KS-018: should skip unchanged file in indexFile', async () => {
+    const result = await ci.indexFile(join(tmpDir, 'src', 'a.ts'));
+    expect(result.symbolsAdded).toBe(0);
+    expect(result.symbolsRemoved).toBe(0);
+    expect(result.referencesUpdated).toBe(0);
+  });
+
+  it('TC-IT-CI-KS-019: should re-index changed file and update symbols', async () => {
+    writeFileSync(join(tmpDir, 'src', 'a.ts'), `
+export function helperA(): string { return 'a'; }
+export function helperB(): string { return 'b'; }
+`);
+
+    const result = await ci.indexFile(join(tmpDir, 'src', 'a.ts'));
+    expect(result.symbolsAdded).toBeGreaterThan(0);
+
+    const syms = await ci.symbolsInFile(join(tmpDir, 'src', 'a.ts'));
+    const names = syms.map(s => s.name);
+    expect(names).toContain('helperA');
+    expect(names).toContain('helperB');
+  });
+});
