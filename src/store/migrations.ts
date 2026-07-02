@@ -142,6 +142,21 @@ export const MIGRATIONS: Migration[] = [
     name: 'initial_schema',
     up: INITIAL_SCHEMA,
   },
+  {
+    version: 2,
+    name: 'add_session_state',
+    up: `
+      CREATE TABLE IF NOT EXISTS session_state (
+        project_root TEXT PRIMARY KEY,
+        active_file TEXT,
+        cursor_line INTEGER,
+        cursor_col INTEGER,
+        cursor_symbol TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_state_updated ON session_state(updated_at);
+    `,
+  },
 ];
 
 export class MigrationRunner {

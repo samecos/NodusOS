@@ -158,6 +158,16 @@ export interface QueryHistoryEntry {
   timestamp: string;
 }
 
+/** 每个项目的会话状态（最后打开的文件与光标位置） */
+export interface SessionState {
+  project_root: string;
+  active_file: string | null;
+  cursor_line: number | null;
+  cursor_col: number | null;
+  cursor_symbol: string | null;
+  updated_at?: string;
+}
+
 /** 索引状态 */
 export type IndexStatus =
   | { kind: 'idle' }

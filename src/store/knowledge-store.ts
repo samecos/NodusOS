@@ -9,6 +9,7 @@ import type {
   CallGraph, CallDirection,
   ProjectMeta, QueryHistoryEntry,
   FileIndexState, RuntimeRequirement, Dependency,
+  SessionState,
 } from '../common/types.js';
 
 export interface KnowledgeStore {
@@ -65,6 +66,11 @@ export interface KnowledgeStore {
   historyRecent(limit: number): QueryHistoryEntry[];
   /** 清理指定日期之前的查询历史，返回删除条数 */
   historyCleanup(beforeDate?: string): number;
+
+  // ---- 会话状态 ----
+  sessionStateGet(projectRoot: string): SessionState | undefined;
+  sessionStateUpsert(state: SessionState): void;
+  sessionStateRemove(projectRoot: string): void;
 
   // ---- 生命周期 ----
   close(): void;

@@ -11,6 +11,7 @@ import type {
   ProjectMeta, QueryHistoryEntry,
   PackageManager,
   FileIndexState, RuntimeRequirement, Dependency,
+  SessionState,
 } from '../common/types.js';
 import type { KnowledgeStore } from './knowledge-store.js';
 import { MigrationRunner } from './migrations.js';
@@ -430,6 +431,39 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
     const d = new Date();
     d.setDate(d.getDate() - days);
     return d.toISOString();
+  }
+
+  // ========== 会话状态 ==========
+
+  sessionStateGet(projectRoot: string): SessionState | undefined {
+    const row = this.db.prepare('SELECT * FROM session_state WHERE project_root = ?').get(projectRoot) as Record<string, unknown> | undefined;
+    if (!row) return undefined;
+    return {
+      project_root: row.project_root as string,
+      active_file: row.active_file as string | null,
+      cursor_line: row.cursor_line as number | null,
+      cursor_col: row.cursor_col as number | null,
+      cursor_symbol: row.cursor_symbol as string | null,
+      updated_at: (row.updated_at as string | undefined) ?? undefined,
+    } satisfies SessionState;
+  }
+
+  sessionStateUpsert(state: SessionState): void {
+    this.db.prepare(`
+      INSERT OR REPLACE INTO session_state (project_root, active_file, cursor_line, cursor_col, cursor_symbol, updated_at)
+      VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+    `).run(
+      state.project_root,
+      state.active_file ?? null,
+      state.cursor_line ?? null,
+      state.cursor_col ?? null,
+      state.cursor_symbol ?? null,
+      state.updated_at ?? null,
+    );
+  }
+
+  sessionStateRemove(projectRoot: string): void {
+    this.db.prepare('DELETE FROM session_state WHERE project_root = ?').run(projectRoot);
   }
 
   // ========== 生命周期 ==========
