@@ -481,8 +481,6 @@ export function helperB(): string { return 'b'; }
   });
 });
 
-import { ModuleResolver } from '../code-intel/module-resolver.js'; // 测试里不一定需要，留作说明
-
 // TC-IT-CI-XREF-001 ~ TC-IT-CI-XREF-002: 跨文件引用解析（re-export + alias + namespace）
 describe('CodeIntelligence Cross-File References', () => {
   const tmpDir = join(tmpdir(), `nodus-xref-test-${Date.now()}`);
