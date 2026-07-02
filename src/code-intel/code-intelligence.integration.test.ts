@@ -481,6 +481,70 @@ export function helperB(): string { return 'b'; }
   });
 });
 
+import { ModuleResolver } from '../code-intel/module-resolver.js'; // 测试里不一定需要，留作说明
+
+// TC-IT-CI-XREF-001 ~ TC-IT-CI-XREF-002: 跨文件引用解析（re-export + alias + namespace）
+describe('CodeIntelligence Cross-File References', () => {
+  const tmpDir = join(tmpdir(), `nodus-xref-test-${Date.now()}`);
+  let store: KnowledgeStore;
+  let ci: CodeIntelligence;
+
+  beforeAll(async () => {
+    mkdirSync(join(tmpDir, 'src', 'utils'), { recursive: true });
+    writeFileSync(join(tmpDir, 'package.json'), JSON.stringify({ name: 'xref-test' }));
+    writeFileSync(join(tmpDir, 'tsconfig.json'), JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@payment': ['src/payment'] } }
+    }));
+    writeFileSync(join(tmpDir, 'src', 'payment.ts'), `
+export function refundOrder(): void {}
+export function getOrder(): void {}
+`);
+    writeFileSync(join(tmpDir, 'src', 'utils', 'index.ts'), `export { refundOrder } from '../payment';`);
+    writeFileSync(join(tmpDir, 'src', 'app.ts'), `
+import { refundOrder as ro } from './utils';
+import * as payment from '@payment';
+ro();
+payment.refundOrder();
+`);
+
+    store = new SqliteKnowledgeStore(':memory:');
+    ci = new CodeIntelligenceImpl(store);
+    await ci.indexProject(tmpDir, ['typescript']);
+  });
+
+  afterAll(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('TC-IT-CI-XREF-001: index re-export + alias + namespace 调用都被解析', async () => {
+    const syms = await ci.findSymbol('refundOrder');
+    expect(syms.length).toBeGreaterThanOrEqual(1);
+    const refundSym = syms.find(s => s.name === 'refundOrder' && s.location.file_path.includes('payment.ts'))!;
+
+    const refs = await ci.findReferences(refundSym.id);
+    const callRefs = refs.filter(r => r.kind === 'call');
+    expect(callRefs.length).toBeGreaterThanOrEqual(2);
+
+    const fromApp = callRefs.filter(r => r.location.file_path.includes('app.ts'));
+    expect(fromApp.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('TC-IT-CI-XREF-002: indexFile 增量更新后引用仍正确', async () => {
+    const appPath = join(tmpDir, 'src', 'app.ts');
+    writeFileSync(appPath, `
+import { refundOrder } from './utils';
+refundOrder();
+`);
+    await ci.indexFile(appPath);
+
+    const syms = await ci.findSymbol('refundOrder');
+    const refundSym = syms.find(s => s.location.file_path.includes('payment.ts'))!;
+    const refs = await ci.findReferences(refundSym.id);
+    expect(refs.some(r => r.location.file_path === appPath)).toBe(true);
+  });
+});
+
 // TC-IT-CI-KS-020: indexFile 后调用 callGraph 应正确返回调用边
 describe('CodeIntelligence callGraph after indexFile', () => {
   const tmpDir = join(tmpdir(), `nodus-callgraph-after-indexfile-test-${Date.now()}`);

@@ -4,13 +4,13 @@
 
 import { readFileSync, statSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { join, relative, extname } from 'node:path';
+import { join, relative, extname, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { KnowledgeStore } from '../store/knowledge-store.js';
 import type {
   Symbol, Language, Reference, CallGraph, CallGraphNode, CallGraphEdge,
   IndexStatus, SymbolKind, ReferenceKind, SymbolId, CallDirection,
-  RiskLevel,
+  RiskLevel, ImportBinding,
 } from '../common/types.js';
 import type { LanguageParser } from './language-parser.js';
 import { CodeIntelError } from '../common/errors.js';
@@ -22,6 +22,8 @@ import type { GitIntelligence, DiffData } from '../git-intel/git-intelligence.js
 import { TypeScriptParser } from './parsers/typescript-parser.js';
 import { PythonParser } from './parsers/python-parser.js';
 import { DefaultCodeAnalytics } from './code-analytics.impl.js';
+import { ModuleResolver } from './module-resolver.js';
+import { ReferenceResolver } from './reference-resolver.js';
 
 /** 默认排除的文件模式 */
 const EXCLUDE_PATTERNS = [
@@ -108,6 +110,13 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
           symbols = parser.parseSymbols(source, file);
           refs = parser.parseReferences(source, symbols);
 
+          // parser 无法从空 symbols 推断文件路径时，显式修正
+          for (const ref of refs) {
+            if (ref.location.file_path !== file) {
+              ref.location.file_path = file;
+            }
+          }
+
           this.enrichRefsWithSource(refs, [...allSymbols, ...symbols]);
 
           this.store.symbolsUpsert(symbols);
@@ -153,29 +162,38 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
       }
     }
 
-    // 跨文件引用解析：将 external:name / unknown:name 解析到项目内导出符号
-    const exportedSymbolMap = new Map<string, Symbol>();
-    for (const sym of allSymbols) {
-      if (sym.is_exported && !exportedSymbolMap.has(sym.name)) {
-        exportedSymbolMap.set(sym.name, sym);
+    // 第二遍：跨文件引用解析
+    const moduleResolver = new ModuleResolver(projectRoot);
+    const referenceResolver = new ReferenceResolver(moduleResolver, this.store);
+
+    // 收集每个文件的 import bindings
+    const bindingsByFile = new Map<string, ImportBinding[]>();
+    for (const file of files) {
+      const lang = this.detectLanguage(file);
+      if (!lang || !languages.includes(lang)) continue;
+      const parser = this.parsers.get(lang);
+      if (!(parser instanceof TypeScriptParser)) continue;
+      try {
+        const source = readFileSync(file, 'utf-8');
+        const bindings = parser.parseImportBindings(source, file);
+        bindingsByFile.set(file, bindings);
+      } catch {
+        bindingsByFile.set(file, []);
       }
     }
 
+    // 解析引用目标
     let resolvedCount = 0;
-    for (const ref of allRefs) {
-      if (ref.target_symbol_id.startsWith('external:') || ref.target_symbol_id.startsWith('unknown:')) {
-        const name = ref.target_symbol_id.split(':')[1];
-        const target = exportedSymbolMap.get(name);
-        if (target) {
-          ref.target_symbol_id = target.id;
-          resolvedCount++;
-        }
-      }
+    for (const [file, bindings] of bindingsByFile) {
+      const refs = this.store.refsFindByFile(file);
+      const before = refs.filter(r => r.target_symbol_id.startsWith('external:') || r.target_symbol_id.startsWith('unknown:')).length;
+      referenceResolver.resolveFileRefs(file, refs, bindings);
+      const after = refs.filter(r => r.target_symbol_id.startsWith('external:') || r.target_symbol_id.startsWith('unknown:')).length;
+      resolvedCount += before - after;
+      this.store.refsUpsert(refs);
     }
-    if (resolvedCount > 0) {
-      this.store.refsUpsert(allRefs);
-      report.referencesFound += 0; // 不新增引用，仅解析目标
-    }
+
+    report.referencesFound = this.store.refsFindAll().length;
 
     report.durationMs = Date.now() - startTime;
     this.state = {
@@ -217,6 +235,13 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
     const symbols = parser.parseSymbols(source, filePath);
     const refs = parser.parseReferences(source, symbols);
 
+    // parser 无法从空 symbols 推断文件路径时，显式修正
+    for (const ref of refs) {
+      if (ref.location.file_path !== filePath) {
+        ref.location.file_path = filePath;
+      }
+    }
+
     this.enrichRefsWithSource(refs, symbols);
 
     // 存储新数据
@@ -233,6 +258,15 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
       symbol_count: symbols.length,
       indexed_at: new Date().toISOString(),
     });
+
+    // 解析当前文件跨文件引用
+    if (parser instanceof TypeScriptParser) {
+      const bindings = parser.parseImportBindings(source, filePath);
+      const resolver = new ReferenceResolver(new ModuleResolver(this.projectRoot ?? dirname(filePath)), this.store);
+      const fileRefs = this.store.refsFindByFile(filePath);
+      resolver.resolveFileRefs(filePath, fileRefs, bindings);
+      this.store.refsUpsert(fileRefs);
+    }
 
     return {
       symbolsAdded: added,
