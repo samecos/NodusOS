@@ -61,7 +61,12 @@ export class TypeScriptParser implements LanguageParser {
     const refs: Reference[] = [];
     const symbolMap = new Map<string, Symbol>();
     for (const sym of symbols) symbolMap.set(sym.name, sym);
-    this.walkForRefs(tree.rootNode, source, fp, symbolMap, refs);
+
+    // 先解析 import bindings，识别 namespace alias
+    const bindings = this.parseImportBindings(source, fp);
+    const namespaceAliases = new Set(bindings.filter(b => b.kind === 'namespace').map(b => b.localName));
+
+    this.walkForRefs(tree.rootNode, source, fp, symbolMap, refs, namespaceAliases);
     return refs;
   }
 
@@ -146,11 +151,12 @@ export class TypeScriptParser implements LanguageParser {
     filePath: string,
     symbolMap: Map<string, Symbol>,
     refs: Reference[],
+    namespaceAliases: Set<string>,
   ): void {
     if (node.type === 'call_expression') {
       const fnNode = node.childForFieldName?.('function') ?? node.namedChildren[0];
       if (fnNode) {
-        const calleeName = this.resolveCallTarget(fnNode);
+        const calleeName = this.resolveCallTarget(fnNode, namespaceAliases);
         if (calleeName) {
           const target = symbolMap.get(calleeName);
           refs.push({
@@ -171,7 +177,7 @@ export class TypeScriptParser implements LanguageParser {
     if (node.type === 'new_expression') {
       const fnNode = node.namedChildren[0];
       if (fnNode) {
-        const calleeName = this.resolveCallTarget(fnNode);
+        const calleeName = this.resolveCallTarget(fnNode, namespaceAliases);
         if (calleeName) {
           const target = symbolMap.get(calleeName);
           refs.push({
@@ -253,7 +259,7 @@ export class TypeScriptParser implements LanguageParser {
       const callExpr = node.namedChildren.find(c => c.type === 'call_expression');
       const targetNode = callExpr?.childForFieldName?.('function') ?? node.namedChildren[0];
       if (targetNode) {
-        const name = this.resolveCallTarget(targetNode);
+        const name = this.resolveCallTarget(targetNode, namespaceAliases);
         if (name) {
           const target = symbolMap.get(name);
           refs.push({
@@ -272,7 +278,7 @@ export class TypeScriptParser implements LanguageParser {
     }
 
     for (const child of node.namedChildren) {
-      this.walkForRefs(child, source, filePath, symbolMap, refs);
+      this.walkForRefs(child, source, filePath, symbolMap, refs, namespaceAliases);
     }
   }
 
@@ -452,11 +458,17 @@ export class TypeScriptParser implements LanguageParser {
     return undefined;
   }
 
-  private resolveCallTarget(fnNode: TSNode): string | null {
+  private resolveCallTarget(fnNode: TSNode, namespaceAliases: Set<string>): string | null {
     if (fnNode.type === 'identifier') return fnNode.text;
     if (fnNode.type === 'member_expression') {
       const parts = fnNode.text.split('.');
-      return parts[parts.length - 1] ?? null;
+      const objectName = parts[0] ?? '';
+      const methodName = parts[parts.length - 1] ?? '';
+      // 如果是 namespace import 的 alias，保留 alias.method 供 resolver 解析
+      if (namespaceAliases.has(objectName)) {
+        return `${objectName}.${methodName}`;
+      }
+      return methodName;
     }
     return null;
   }

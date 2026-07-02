@@ -73,4 +73,30 @@ defaultRefund();
     const callRef = refs.find(r => r.kind === 'call')!;
     expect(callRef.target_symbol_id).toBe(defaultSym.id);
   });
+
+  it('TC-UT-RR-003: namespace import 调用解析到模块内符号', () => {
+    const appSrc = `import * as payment from './payment';\npayment.refundOrder();`;
+    const appSyms = parser.parseSymbols(appSrc, join(TMP, 'src', 'app.ts'));
+    const refs = parser.parseReferences(appSrc, appSyms);
+    const bindings = parser.parseImportBindings(appSrc, join(TMP, 'src', 'app.ts'));
+
+    resolver.resolveFileRefs(join(TMP, 'src', 'app.ts'), refs, bindings);
+
+    const refundSym = store.symbolsFindByFile(join(TMP, 'src', 'payment.ts')).find(s => s.name === 'refundOrder')!;
+    const callRef = refs.find(r => r.kind === 'call')!;
+    expect(callRef.target_symbol_id).toBe(refundSym.id);
+  });
+
+  it('TC-UT-RR-004: import alias 使用解析到原始符号', () => {
+    const appSrc = `import { refundOrder as ro } from './payment';\nro();`;
+    const appSyms = parser.parseSymbols(appSrc, join(TMP, 'src', 'app.ts'));
+    const refs = parser.parseReferences(appSrc, appSyms);
+    const bindings = parser.parseImportBindings(appSrc, join(TMP, 'src', 'app.ts'));
+
+    resolver.resolveFileRefs(join(TMP, 'src', 'app.ts'), refs, bindings);
+
+    const refundSym = store.symbolsFindByFile(join(TMP, 'src', 'payment.ts')).find(s => s.name === 'refundOrder')!;
+    const callRef = refs.find(r => r.kind === 'call')!;
+    expect(callRef.target_symbol_id).toBe(refundSym.id);
+  });
 });
