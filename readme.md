@@ -230,7 +230,7 @@ Human Input (Voice/Text)
 ## TDD Development
 
 ```bash
-npm test              # 运行全部 176 个测试
+npm test              # 运行全部 177 个测试
 npm run test:watch    # 监听模式
 npm run typecheck     # TypeScript 检查
 ```
