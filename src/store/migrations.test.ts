@@ -52,7 +52,7 @@ describe('MigrationRunner', () => {
     const runner = new MigrationRunner(db);
     runner.run();
 
-    const expectedTables = ['symbols', 'refs', 'projects', 'file_index_state', 'query_history'];
+    const expectedTables = ['symbols', 'refs', 'projects', 'file_index_state', 'query_history', 'session_state'];
     for (const table of expectedTables) {
       const rows = db.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?"

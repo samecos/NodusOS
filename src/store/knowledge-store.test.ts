@@ -1,5 +1,5 @@
 // ============================================================
-// KnowledgeStore 单元测试 — TC-UT-KS-001 ~ TC-UT-KS-023
+// KnowledgeStore 单元测试 — TC-UT-KS-001 ~ TC-UT-KS-025, TC-UT-STORE-015 ~ TC-UT-STORE-017
 // ============================================================
 
 import { describe, it, expect, beforeEach } from 'vitest';

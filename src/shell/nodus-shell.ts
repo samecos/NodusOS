@@ -163,17 +163,19 @@ export class NodusShell {
 
       // 恢复该项目上次会话状态
       const session = this.store.sessionStateGet(projectPath);
-      if (session?.active_file) {
+      if (session) {
         this.contextMgr.update({ kind: 'project_changed', root: projectPath });
-        this.contextMgr.update({ kind: 'file_opened', path: session.active_file });
-        if (session.cursor_line != null && session.cursor_col != null) {
-          this.contextMgr.update({
-            kind: 'cursor_moved',
-            file: session.active_file,
-            line: session.cursor_line,
-            col: session.cursor_col,
-            symbol: session.cursor_symbol,
-          });
+        if (session.active_file) {
+          this.contextMgr.update({ kind: 'file_opened', path: session.active_file });
+          if (session.cursor_line != null && session.cursor_col != null) {
+            this.contextMgr.update({
+              kind: 'cursor_moved',
+              file: session.active_file,
+              line: session.cursor_line,
+              col: session.cursor_col,
+              symbol: session.cursor_symbol,
+            });
+          }
         }
       }
 
@@ -254,24 +256,26 @@ export class NodusShell {
 
     console.log('[Nodus] Shutting down...');
 
-    // 保存当前会话状态
-    const ctx = this.contextMgr.snapshot();
-    if (ctx.active_project_root) {
-      this.store.sessionStateUpsert({
-        project_root: ctx.active_project_root,
-        active_file: ctx.active_file,
-        cursor_line: ctx.cursor_line,
-        cursor_col: ctx.cursor_col,
-        cursor_symbol: ctx.cursor_symbol,
-      });
+    try {
+      // 保存当前会话状态
+      const ctx = this.contextMgr.snapshot();
+      if (ctx.active_project_root) {
+        this.store.sessionStateUpsert({
+          project_root: ctx.active_project_root,
+          active_file: ctx.active_file,
+          cursor_line: ctx.cursor_line,
+          cursor_col: ctx.cursor_col,
+          cursor_symbol: ctx.cursor_symbol,
+        });
+      }
+    } finally {
+      this.fileWatcher.pause();
+      await this.voicePipeline.stop().catch(() => {});
+      this.unsubscribeConfig?.();
+      this.store.close();
+      this.eventBus.clear();
+      console.log('[Nodus] Goodbye.');
     }
-
-    this.fileWatcher.pause();
-    await this.voicePipeline.stop();
-    this.unsubscribeConfig?.();
-    this.store.close();
-    this.eventBus.clear();
-    console.log('[Nodus] Goodbye.');
   }
 
   // ---- helpers ----

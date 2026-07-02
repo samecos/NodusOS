@@ -440,10 +440,10 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
     if (!row) return undefined;
     return {
       project_root: row.project_root as string,
-      active_file: row.active_file as string | null,
-      cursor_line: row.cursor_line as number | null,
-      cursor_col: row.cursor_col as number | null,
-      cursor_symbol: row.cursor_symbol as string | null,
+      active_file: (row.active_file as string | null) ?? null,
+      cursor_line: (row.cursor_line as number | null) ?? null,
+      cursor_col: (row.cursor_col as number | null) ?? null,
+      cursor_symbol: (row.cursor_symbol as string | null) ?? null,
       updated_at: (row.updated_at as string | undefined) ?? undefined,
     } satisfies SessionState;
   }
@@ -451,14 +451,13 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
   sessionStateUpsert(state: SessionState): void {
     this.db.prepare(`
       INSERT OR REPLACE INTO session_state (project_root, active_file, cursor_line, cursor_col, cursor_symbol, updated_at)
-      VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+      VALUES (?, ?, ?, ?, ?, datetime('now'))
     `).run(
       state.project_root,
       state.active_file ?? null,
       state.cursor_line ?? null,
       state.cursor_col ?? null,
       state.cursor_symbol ?? null,
-      state.updated_at ?? null,
     );
   }
 

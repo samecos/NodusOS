@@ -152,13 +152,13 @@ describe('NodusShell', () => {
     }, null, 2));
 
     // 第一次启动：建立会话状态
-    const configManager1 = new JsonConfigManager(configPath);
-    const shell1 = new NodusShell(configManager1);
-    await shell1.bootstrap();
+    currentConfigManager = new JsonConfigManager(configPath);
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
 
-    shell1.contextMgr.update({ kind: 'project_changed', root: tinyProjectPath });
-    shell1.contextMgr.update({ kind: 'file_opened', path: join(tinyProjectPath, 'index.ts') });
-    shell1.contextMgr.update({
+    shell.contextMgr.update({ kind: 'project_changed', root: tinyProjectPath });
+    shell.contextMgr.update({ kind: 'file_opened', path: join(tinyProjectPath, 'index.ts') });
+    shell.contextMgr.update({
       kind: 'cursor_moved',
       file: join(tinyProjectPath, 'index.ts'),
       line: 7,
@@ -166,20 +166,21 @@ describe('NodusShell', () => {
       symbol: 'greet',
     });
 
-    await shell1.shutdown();
+    await shell.shutdown();
+    shell = undefined;
+    currentConfigManager?.close();
+    currentConfigManager = undefined;
 
     // 第二次启动：验证恢复
-    const configManager2 = new JsonConfigManager(configPath);
-    const shell2 = new NodusShell(configManager2);
-    await shell2.bootstrap();
+    currentConfigManager = new JsonConfigManager(configPath);
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
 
-    const ctx = shell2.contextMgr.snapshot();
+    const ctx = shell.contextMgr.snapshot();
     expect(ctx.active_project_root).toBe(tinyProjectPath);
     expect(ctx.active_file).toBe(join(tinyProjectPath, 'index.ts'));
     expect(ctx.cursor_line).toBe(7);
     expect(ctx.cursor_col).toBe(3);
     expect(ctx.cursor_symbol).toBe('greet');
-
-    await shell2.shutdown();
   });
 });
