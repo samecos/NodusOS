@@ -68,6 +68,18 @@ async function main() {
       continue;
     }
 
+    // /learn 命令 — 重新加载反馈数据
+    if (input === '/learn') {
+      const count = shell.learnFeedback();
+      const total = shell.getLearnedCount();
+      if (count > 0) {
+        console.log(`已从反馈数据中学习 ${count} 条新句式（共 ${total} 条）。`);
+      } else {
+        console.log(`没有新的反馈数据可学习（当前已有 ${total} 条学习句式）。`);
+      }
+      continue;
+    }
+
     if (input === '/quit' || input === '/exit') break;
 
     try {

@@ -105,6 +105,15 @@ auth模块最近一周改了什么
 
 代码片段自动进行终端语法高亮：关键词（蓝）、字符串（绿）、数字（黄）、注释（灰），目标行加粗。
 
+### 意图学习闭环（R2.7）
+
+每次成功执行的查询会自动写入 `~/.nodus/feedback.jsonl` 作为反馈数据。系统启动时会自动加载已有反馈，将用户常用的查询句式加入意图匹配引擎的例句库中，提升后续相似查询的识别率。
+
+- **自动学习**：每次成功查询后，系统自动记录（输入文本 + 解析意图 + 置信度），追加到 `feedback.jsonl`
+- **启动加载**：`bootstrap` 时自动从反馈文件加载已确认的查询句式作为新例句
+- **手动触发**：输入 `/learn` 随时重新加载反馈数据，适用于多个 Nodus 会话之间传递学习成果
+- **去重与限流**：相同（查询文本 + 意图类型）只保留一条，学习例句上限 100 条
+
 ## 使用方法
 
 ### 启动与项目加载
@@ -153,6 +162,7 @@ Nodus is ready. Type a query or /quit to exit.
 | `/help` | 显示可用命令与示例 |
 | `/history` | 查看最近 10 条查询历史 |
 | `/history <n>` | 查看最近 n 条查询历史（上限 50） |
+| `/learn` | 从 `~/.nodus/feedback.jsonl` 重新加载学习句式 |
 | `/feedback <文本>` | 提交使用反馈，保存到 `~/.nodus/feedback.jsonl` |
 | *(空行)* | 显示推荐查询，输入序号即可执行 |
 
@@ -299,7 +309,7 @@ Human Input (Voice/Text)
 ## TDD Development
 
 ```bash
-npm test              # 运行全部 250 个测试
+npm test              # 运行全部 255 个测试
 npm run test:watch    # 监听模式
 npm run typecheck     # TypeScript 检查
 ```
@@ -386,7 +396,7 @@ npm test
 - [ ] R2.4 真正的语音唤醒与 STT（Porcupine / Whisper.cpp / 系统 API）
 - [x] R2.5 呼吸灯与状态指示（Idle / Listening / Working / Warning）
 - [x] R2.6 代码片段卡片（引用列表、变更历史附带代码片段与高亮）
-- [ ] R2.7 模糊意图学习闭环（`feedback.jsonl` 驱动模型改进）
+- [x] R2.7 模糊意图学习闭环（`feedback.jsonl` 驱动模型改进）
 - [ ] R2.8 多项目快速切换（自然语言打开/切换项目）
 
 #### v2.0 能力扩展

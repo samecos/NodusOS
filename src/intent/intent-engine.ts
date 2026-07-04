@@ -65,4 +65,10 @@ export interface IntentEngine {
 
   /** 记录反馈用于持续优化 */
   recordFeedback(input: IntentInput, parsed: QueryIntent | null, actual: QueryIntent): void;
+
+  /** 从 feedback.jsonl 加载用户确认的查询作为新例句，返回新学习数量 */
+  loadFeedback(): number;
+
+  /** 返回已学习例句数量 */
+  getLearnedCount(): number;
 }

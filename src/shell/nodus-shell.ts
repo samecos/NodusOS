@@ -112,6 +112,12 @@ export class NodusShell {
 
     console.log('[Nodus] Ready.');
     this.setBreathLight('idle');
+
+    // 加载历史反馈学习
+    const learned = this.intentEngine.loadFeedback();
+    if (learned > 0) {
+      console.log(`[Nodus] Learned ${learned} query patterns from feedback.`);
+    }
   }
 
   /** 动态注册模块 */
@@ -283,6 +289,14 @@ export class NodusShell {
 
       const output = this.uiRenderer.render(queryResult);
       this.queryCache.set(cacheKey, output);
+
+      // 记录反馈用于学习闭环
+      this.intentEngine.recordFeedback(
+        { source: 'text', text, locale: this.config.locale ?? 'zh-CN' },
+        intent,
+        intent,
+      );
+
       this.setBreathLight('idle');
       return output;
     } catch (err) {
@@ -358,6 +372,16 @@ export class NodusShell {
   getRecommendationList(): RecommendationItem[] {
     const recs = this.recommendationEngine.generate();
     return recs.map(r => ({ text: r.text, reason: r.reason }));
+  }
+
+  /** 从 feedback.jsonl 重新加载学习例句，返回新学习数量 */
+  learnFeedback(): number {
+    return this.intentEngine.loadFeedback();
+  }
+
+  /** 返回已学习例句数量 */
+  getLearnedCount(): number {
+    return this.intentEngine.getLearnedCount();
   }
 
   private countResults(result: QueryResult): number {

@@ -2,9 +2,14 @@
 // IntentEngine 测试 — TC-UT-IE-001 ~ TC-UT-IE-015
 // ============================================================
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { PatternIntentEngine } from './intent-engine.impl.js';
 import type { Context, QueryIntent } from './intent-engine.js';
+import { writeFileSync, mkdtempSync, rmSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+let feedbackTmpDir: string;
 
 function makeCtx(overrides: Partial<Context> = {}): Context {
   return {
@@ -174,5 +179,87 @@ describe('IntentEngine', () => {
       expect(result.entities.symbolName).toBe('IUserService');
       expect(result.entities.relationshipKind).toBe('implementations');
     }
+  });
+
+  // ==========================================================
+  // R2.7 学习闭环测试
+  // ==========================================================
+
+  describe('R2.7 feedback learning', () => {
+    const originalHome = process.env.HOME;
+
+    beforeAll(() => {
+      feedbackTmpDir = mkdtempSync(join(tmpdir(), 'nodus-feedback-test-'));
+      process.env.HOME = feedbackTmpDir;
+    });
+
+    afterAll(() => {
+      process.env.HOME = originalHome;
+      if (feedbackTmpDir) rmSync(feedbackTmpDir, { recursive: true, force: true });
+    });
+
+    // TC-UT-IE-016: 从 feedback.jsonl 加载有效例句
+    it('TC-UT-IE-016: should load valid feedback entries as learned examples', () => {
+      const nodusDir = join(feedbackTmpDir, '.nodus');
+      mkdirSync(nodusDir, { recursive: true });
+      writeFileSync(join(nodusDir, 'feedback.jsonl'), [
+        JSON.stringify({ input_text: 'how do I call refundOrder', parsed_intent: 'find_references', actual_intent: 'find_references', parsed_confidence: 0.9 }),
+        JSON.stringify({ input_text: 'list all the classes in this project', parsed_intent: 'list_symbols', actual_intent: 'list_symbols', parsed_confidence: 0.92 }),
+        JSON.stringify({ input_text: 'show me the stats please', parsed_intent: 'stats', actual_intent: 'stats', parsed_confidence: 0.88 }),
+      ].join('\n'));
+
+      const engine = new PatternIntentEngine();
+      const count = engine.loadFeedback();
+      expect(count).toBe(3);
+      expect(engine.getLearnedCount()).toBe(3);
+    });
+
+    // TC-UT-IE-017: 重复加载不应增加计数
+    it('TC-UT-IE-017: should not add duplicate examples on reload', () => {
+      const engine = new PatternIntentEngine();
+      engine.loadFeedback();
+      const afterSecond = engine.loadFeedback();
+      expect(afterSecond).toBe(0);
+    });
+
+    // TC-UT-IE-018: 匹配应包含已学习例句
+    it('TC-UT-IE-018: matchBySimilarity should consider learned examples', () => {
+      const engine = new PatternIntentEngine();
+      engine.loadFeedback();
+
+      // "how do I call refundOrder" 应匹配 find_references
+      const result = engine.parse(
+        { source: 'text', text: 'how do I call refundOrder', locale: 'zh-CN' },
+        emptyContext,
+      );
+      expect(result).not.toHaveProperty('kind');
+      if (!('kind' in result)) {
+        expect(result.intentType).toBe('find_references');
+      }
+    });
+
+    // TC-UT-IE-019: invalid feedback entries should be skipped
+    it('TC-UT-IE-019: should skip invalid feedback entries', () => {
+      const nodusDir = join(feedbackTmpDir, '.nodus');
+      writeFileSync(join(nodusDir, 'feedback.jsonl'), [
+        'invalid json',
+        JSON.stringify({ input_text: 'good query here', parsed_intent: 'find_definition', parsed_confidence: 0.9 }),
+        JSON.stringify({ no_input: true }),
+      ].join('\n'));
+
+      const engine = new PatternIntentEngine();
+      const count = engine.loadFeedback();
+      expect(count).toBe(1); // 只有 good query here 有效
+    });
+
+    // TC-UT-IE-020: 空反馈文件不应报错
+    it('TC-UT-IE-020: should handle empty feedback file gracefully', () => {
+      const nodusDir = join(feedbackTmpDir, '.nodus');
+      writeFileSync(join(nodusDir, 'feedback.jsonl'), '');
+
+      const engine = new PatternIntentEngine();
+      const count = engine.loadFeedback();
+      expect(count).toBe(0);
+    });
   });
 });

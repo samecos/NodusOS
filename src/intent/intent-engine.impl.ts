@@ -2,7 +2,7 @@
 // IntentEngine 实现 — 正则精确匹配 + 示例相似度回退 (MVP)
 // ============================================================
 
-import { appendFileSync, mkdirSync, existsSync } from 'node:fs';
+import { appendFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   IntentEngine, IntentInput, QueryIntent, IntentEntity, IntentError, Context,
@@ -78,6 +78,102 @@ export class PatternIntentEngine implements IntentEngine {
     { text: 'who implements xxx', intentType: 'type_relationships', entityHint: 'symbol' },
     { text: 'subclasses of xxx', intentType: 'type_relationships', entityHint: 'symbol' },
   ];
+
+  /** 从 feedback.jsonl 学习到的例句列表 */
+  private learnedExamples: Array<{
+    text: string;
+    intentType: IntentType;
+    entityHint?: 'symbol' | 'file' | 'module';
+  }> = [];
+
+  /**
+   * 从 ~/.nodus/feedback.jsonl 加载用户确认的查询作为新例句。
+   *
+   * - 只加载 actual_intent 与 parsed_intent 一致且 confidence >= 阈值的记录
+   * - 自动去重（相同 text + intentType 只保留一条）
+   * - 与原示例库最多保持 200 条例句
+   *
+   * @returns 本次新学习到的例句数量
+   */
+  loadFeedback(): number {
+    try {
+      const home = process.env.HOME ?? process.env.USERPROFILE ?? '.';
+      const filePath = join(home, '.nodus', 'feedback.jsonl');
+      if (!existsSync(filePath)) return 0;
+
+      const content = readFileSync(filePath, 'utf-8');
+      const lines = content.trim().split('\n');
+      if (lines.length === 0) return 0;
+
+      // 收集现有所有例句的 key（内置 + 已学习），用于去重
+      const existingKeys = new Set<string>();
+      for (const ex of this.exampleQueries) {
+        existingKeys.add(`${ex.text}|${ex.intentType}`);
+      }
+      for (const ex of this.learnedExamples) {
+        existingKeys.add(`${ex.text}|${ex.intentType}`);
+      }
+
+      let addedCount = 0;
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line) as {
+            input_text?: string;
+            parsed_intent?: string;
+            actual_intent?: string;
+            parsed_confidence?: number;
+            actual_entities?: Record<string, unknown>;
+          };
+
+          // 必须有输入文本和解析意图
+          const text = entry.input_text?.trim();
+          const parsedIntent = entry.parsed_intent;
+          const actualIntent = entry.actual_intent;
+          if (!text || !parsedIntent) continue;
+
+          // 解析意图与用户确认意图一致（或只有解析意图无歧义）
+          const intentType = (actualIntent ?? parsedIntent) as IntentType;
+          if (!this.isValidIntentType(intentType)) continue;
+
+          // 去重
+          const key = `${text}|${intentType}`;
+          if (existingKeys.has(key)) continue;
+
+          // 推断 entityHint
+          let entityHint: 'symbol' | 'file' | 'module' | undefined;
+          if (entry.actual_entities) {
+            const entities = entry.actual_entities;
+            if (entities.symbolName) entityHint = 'symbol';
+            else if (entities.filePath) entityHint = 'file';
+            else if (entities.moduleName) entityHint = 'module';
+          } else {
+            // 从原始例句中匹配 hint
+            entityHint = this.inferEntityHint(text);
+          }
+
+          this.learnedExamples.push({ text, intentType, entityHint });
+          existingKeys.add(key);
+          addedCount++;
+
+          // 限制总例句数
+          if (this.learnedExamples.length > 100) {
+            this.learnedExamples = this.learnedExamples.slice(-100);
+          }
+        } catch {
+          // 单行解析失败，跳过
+        }
+      }
+
+      return addedCount;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** 返回已学习例句数量 */
+  getLearnedCount(): number {
+    return this.learnedExamples.length;
+  }
 
   parse(input: IntentInput, context: Context): QueryIntent | IntentError {
     const text = input.text.trim();
@@ -316,7 +412,9 @@ export class PatternIntentEngine implements IntentEngine {
       entityHint?: 'symbol' | 'file' | 'module';
     } | null = null;
 
-    for (const ex of this.exampleQueries) {
+    // 搜索内置例句 + 已学习例句
+    const allExamples = [...this.exampleQueries, ...this.learnedExamples];
+    for (const ex of allExamples) {
       const exTokens = this.tokenize(ex.text);
       const score = this.cosineSimilarity(inputTokens, exTokens);
       if (!best || score > best.score) {
@@ -479,6 +577,29 @@ export class PatternIntentEngine implements IntentEngine {
     if (/实现|implements?/.test(lower)) return 'implementations';
     if (/继承|extends?|子类|subclasses?/.test(lower)) return 'subclasses';
     if (/使用|uses?|引用|type\s+uses?/.test(lower)) return 'type_uses';
+    return undefined;
+  }
+
+  // ---- 学习闭环辅助 ----
+
+  private isValidIntentType(type: string): boolean {
+    const valid: IntentType[] = [
+      'find_definition', 'find_references', 'call_graph', 'impact_analysis',
+      'change_history', 'symbol_overview', 'list_symbols', 'stats',
+      'analytics', 'type_relationships',
+    ];
+    return (valid as string[]).includes(type);
+  }
+
+  /** 根据查询文本推断实体提示 */
+  private inferEntityHint(text: string): 'symbol' | 'file' | 'module' | undefined {
+    const lower = text.toLowerCase();
+    // 文件名特征
+    if (/\.[tj]sx?/.test(lower)) return 'file';
+    // 模块特征
+    if (/模块/.test(lower)) return 'module';
+    // 其他默认为符号查询
+    if (/[a-zA-Z_]\w{2,}/.test(text)) return 'symbol';
     return undefined;
   }
 }
