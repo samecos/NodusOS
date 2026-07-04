@@ -2,15 +2,31 @@
 // TerminalRenderer 测试
 // ============================================================
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { TerminalRenderer } from './terminal-renderer.js';
 import { CodeIntelError } from '../common/errors.js';
+import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+let tmpDir: string;
+
+function makeFile(name: string, content: string): string {
+  if (!tmpDir) tmpDir = mkdtempSync(join(tmpdir(), 'nodus-ui-test-'));
+  const path = join(tmpDir, name);
+  writeFileSync(path, content, 'utf-8');
+  return path;
+}
 
 describe('TerminalRenderer', () => {
   let renderer: TerminalRenderer;
 
   beforeEach(() => {
     renderer = new TerminalRenderer();
+  });
+
+  afterAll(() => {
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it('should render symbol list', () => {
@@ -100,12 +116,20 @@ describe('TerminalRenderer', () => {
     expect(renderer.listCards()).toHaveLength(0);
   });
 
-  // TC-UT-UI-003: 渲染代码片段
-  it('TC-UT-UI-003: should render code snippet placeholder', () => {
-    const out = renderer.renderCodeSnippet('src/a.ts', { start: 10, end: 20 });
-    expect(out).toContain('src/a.ts');
-    expect(out).toContain('10');
-    expect(out).toContain('20');
+  // TC-UT-UI-003: 渲染代码片段（真实文件）
+  it('TC-UT-UI-003: should render code snippet from real file with highlighting', () => {
+    const file = makeFile('snippet-test.ts', [
+      'import { foo } from "./bar";',
+      '',
+      'export function testFunction() {',
+      '  return 42;',
+      '}',
+    ].join('\n'));
+
+    const out = renderer.renderCodeSnippet(file, { start: 2, end: 4 }, 'typescript');
+    expect(out).toContain('snippet-test.ts');
+    expect(out).toContain('testFunction');
+    expect(out).toContain('return');
   });
 
   // TC-UT-UI-004: 代码导航输出
@@ -503,5 +527,67 @@ describe('TerminalRenderer', () => {
     renderer.setBreathLight('error');
     expect(spy).toHaveBeenCalledWith(expect.stringContaining('✖'));
     spy.mockRestore();
+  });
+
+  // TC-UT-UI-026: 引用列表应附带代码片段（真实文件）
+  it('TC-UT-UI-026: should render reference list with code snippets', () => {
+    const file = makeFile('ref-test.ts', [
+      'import { foo } from "./bar";',
+      '',
+      'export function processOrder(id: string) {',
+      '  return validateOrder(id);',
+      '}',
+    ].join('\n'));
+
+    const out = renderer.render({
+      kind: 'reference_list',
+      references: [
+        {
+          id: 'r1', source_symbol_id: 's1', target_symbol_id: 't1',
+          location: { file_path: file, line_start: 3, line_end: 3, col_start: 1, col_end: 5 },
+          kind: 'call',
+        },
+      ],
+    });
+    expect(out).toContain('1 处引用');
+    expect(out).toContain('processOrder');
+    expect(out).toContain('function'); // 关键词高亮
+    expect(out).toContain('→');  // 目标行标记
+    expect(out).toContain('|');  // 上下文行标记
+  });
+
+  // TC-UT-UI-027: 变更历史应附带变更符号的代码片段
+  it('TC-UT-UI-027: should render change history with symbol snippets', () => {
+    const file = makeFile('history-test.ts', [
+      'export class UserService {',
+      '  getUser(id: string) {',
+      '    return db.find(id);',
+      '  }',
+      '}',
+    ].join('\n'));
+
+    const out = renderer.render({
+      kind: 'change_history',
+      records: [
+        {
+          commitHash: 'abc1234567890',
+          commitMessage: 'Add UserService',
+          author: 'dev',
+          timestamp: '2026-07-02T10:00:00Z',
+          diffSummary: '+3 -0',
+          changedSymbols: [
+            {
+              id: 'sym1', name: 'UserService', kind: 'class', language: 'typescript',
+              location: { file_path: file, line_start: 1, line_end: 1, col_start: 1, col_end: 1 },
+              is_exported: true,
+            },
+          ],
+        },
+      ],
+    });
+    expect(out).toContain('abc1234');
+    expect(out).toContain('UserService');
+    expect(out).toContain('class'); // 关键词高亮
+    expect(out).toContain('→');
   });
 });

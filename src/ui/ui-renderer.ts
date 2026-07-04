@@ -126,7 +126,7 @@ export interface UIRenderer {
   navigateToSymbol(filePath: string, line: number, column?: number): void;
 
   /** 渲染指定文件的代码片段 */
-  renderCodeSnippet(filePath: string, lineRange: { start: number; end: number }): string;
+  renderCodeSnippet(filePath: string, lineRange: { start: number; end: number }, language?: import('../common/types.js').Language): string;
 }
 
 // ============================================================

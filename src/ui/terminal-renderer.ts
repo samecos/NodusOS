@@ -5,10 +5,11 @@
 import type { UIRenderer, Card, BreathLightState, HistoryItem, RecommendationItem } from './ui-renderer.js';
 import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { IntentError, QueryIntent } from '../intent/intent-engine.js';
-import type { Symbol, Reference, ReferenceKind, CallGraph, CallGraphNode, ProjectMeta } from '../common/types.js';
+import type { Symbol, Reference, ReferenceKind, CallGraph, CallGraphNode, ProjectMeta, Language } from '../common/types.js';
 import type { ImpactReport, ChangeRecord, TypeRelationship } from '../code-intel/code-intelligence.js';
 import type { SymbolMetric, ModuleCoupling, CallChain, TodoComment } from '../code-intel/code-analytics.js';
 import { type NodusError, getDegradationSuggestion } from '../common/errors.js';
+import { readFileSnippet, renderSnippet } from './code-snippet.js';
 
 const BLUE = '\x1b[36m';
 const GREEN = '\x1b[32m';
@@ -218,8 +219,13 @@ export class TerminalRenderer implements UIRenderer {
     console.log(c(`→ ${filePath}:${line}:${column}`, BLUE));
   }
 
-  renderCodeSnippet(filePath: string, lineRange: { start: number; end: number }): string {
-    return c(`\n[Code: ${filePath}:${lineRange.start}-${lineRange.end}]\n`, DIM);
+  renderCodeSnippet(filePath: string, lineRange: { start: number; end: number }, language?: Language): string {
+    // 读取片段：取中心行附近上下文
+    const centerLine = Math.floor((lineRange.start + lineRange.end) / 2);
+    const contextLines = Math.max(1, lineRange.end - lineRange.start + 1);
+    const lines = readFileSnippet(filePath, centerLine, contextLines);
+    if (lines.length === 0) return c(`\n[无法读取: ${filePath}]\n`, DIM);
+    return renderSnippet(filePath, lines, language ?? 'typescript');
   }
 
   // ---- private helpers ----
@@ -241,7 +247,7 @@ export class TerminalRenderer implements UIRenderer {
     return out + '\n';
   }
 
-  private renderReferenceList(refs: Reference[]): string {
+  private renderReferenceList(refs: Reference[], language?: Language): string {
     if (refs.length === 0) return c('未找到引用', DIM);
 
     // 按文件分组
@@ -253,11 +259,22 @@ export class TerminalRenderer implements UIRenderer {
     }
 
     let out = c(`\n${refs.length} 处引用`, BOLD);
+    const lang = language ?? 'typescript';
     for (const [file, fileRefs] of byFile) {
       out += `\n${c(`\n  ${file}`, BLUE)}`;
       for (const ref of fileRefs) {
         const linePrefix = `    L${ref.location.line_start}`.padEnd(8);
         out += `\n${c(linePrefix, DIM)} ${c(ref.kind, YELLOW)}`;
+
+        // 代码片段（3 行上下文）
+        const snippet = readFileSnippet(
+          ref.location.file_path,
+          ref.location.line_start,
+          1,
+        );
+        if (snippet.length > 0) {
+          out += renderSnippet(file, snippet, lang);
+        }
       }
     }
     return out + '\n';
@@ -403,6 +420,20 @@ export class TerminalRenderer implements UIRenderer {
       const time = rec.timestamp.slice(0, 10);
       out += `\n  ${c(shortHash, YELLOW)} ${c(rec.commitMessage, BOLD)}`;
       out += `\n  ${c(`${rec.author} · ${time} · ${rec.diffSummary}`, DIM)}`;
+
+      // 受影响的符号及其代码片段（最多 5 个）
+      const topSymbols = rec.changedSymbols.slice(0, 5);
+      for (const sym of topSymbols) {
+        out += `\n    ${c(sym.name, BOLD)} ${c(`[${sym.kind}]`, DIM)} ${c(`${sym.location.file_path}:${sym.location.line_start}`, BLUE)}`;
+        const snippet = readFileSnippet(
+          sym.location.file_path,
+          sym.location.line_start,
+          1,
+        );
+        if (snippet.length > 0) {
+          out += renderSnippet(sym.location.file_path, snippet, sym.language);
+        }
+      }
     }
     return out + '\n';
   }
