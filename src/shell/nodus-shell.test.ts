@@ -239,4 +239,78 @@ describe('NodusShell', () => {
     expect(errors.some(e => e.code === 'ENV_UNKNOWN_PROJECT_TYPE')).toBe(true);
     expect(shell.getModule('code_intelligence')).toBeDefined();
   });
+
+  // TC-UT-SH-011: 查询缓存命中
+  it('TC-UT-SH-011: should return cached result on repeated query', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    const configPath = join(currentTmpDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      projectPaths: [tinyProjectPath],
+      dbPath: ':memory:',
+      locale: 'zh-CN',
+    }, null, 2));
+
+    currentConfigManager = new JsonConfigManager(configPath);
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    const queryText = 'refundOrder在哪里定义的';
+    const result1 = await shell.handleQueryFormatted(queryText);
+    expect(result1).toBeDefined();
+
+    // 第二次查询应命中缓存，标记 [cached]
+    const result2 = await shell.handleQueryFormatted(queryText);
+    expect(result2).toContain('[cached]');
+  });
+
+  // TC-UT-SH-012: getRecommendations 应返回推荐
+  it('TC-UT-SH-012: should return recommendations', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    const configPath = join(currentTmpDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      projectPaths: [tinyProjectPath],
+      dbPath: ':memory:',
+      locale: 'zh-CN',
+    }, null, 2));
+
+    currentConfigManager = new JsonConfigManager(configPath);
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    // 设置 cursor_symbol 以触发上下文推荐
+    shell.contextMgr.update({ kind: 'cursor_moved', file: 'test.ts', line: 1, col: 1, symbol: 'refundOrder' });
+
+    const recs = shell.getRecommendationList();
+    expect(recs.length).toBeGreaterThan(0);
+    expect(recs.some(r => r.text.includes('refundOrder'))).toBe(true);
+
+    const rendered = shell.getRecommendations();
+    expect(rendered).toContain('你可能想问');
+  });
+
+  // TC-UT-SH-013: 呼吸灯状态切换
+  it('TC-UT-SH-013: should emit ui:state_changed events during query', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    const configPath = join(currentTmpDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      projectPaths: [tinyProjectPath],
+      dbPath: ':memory:',
+      locale: 'zh-CN',
+    }, null, 2));
+
+    currentConfigManager = new JsonConfigManager(configPath);
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    const states: string[] = [];
+    shell.eventBus.on('ui:state_changed', (event) => {
+      states.push(event.state);
+    });
+
+    await shell.handleQueryFormatted('refundOrder在哪里定义的');
+
+    // 应至少包含 thinking → idle 的切换
+    expect(states).toContain('thinking');
+    expect(states).toContain('idle');
+  });
 });

@@ -64,6 +64,8 @@ export interface KnowledgeStore {
   // ---- 查询历史 ----
   historyRecord(entry: QueryHistoryEntry): void;
   historyRecent(limit: number): QueryHistoryEntry[];
+  /** 按关键词模糊搜索查询历史 */
+  historySearch(keyword: string, limit?: number): QueryHistoryEntry[];
   /** 清理指定日期之前的查询历史，返回删除条数 */
   historyCleanup(beforeDate?: string): number;
 

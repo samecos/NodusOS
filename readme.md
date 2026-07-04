@@ -105,8 +105,10 @@ Nodus is ready. Type a query or /quit to exit.
 |------|------|
 | `/quit` 或 `/exit` | 退出 Nodus |
 | `/help` | 显示可用命令与示例 |
-| `/history` | 查看本次会话的查询历史 |
+| `/history` | 查看最近 10 条查询历史 |
+| `/history <n>` | 查看最近 n 条查询历史（上限 50） |
 | `/feedback <文本>` | 提交使用反馈，保存到 `~/.nodus/feedback.jsonl` |
+| *(空行)* | 显示推荐查询，输入序号即可执行 |
 
 ### 配置文件
 
@@ -334,9 +336,9 @@ npm test
 - [x] R1.8 错误处理与降级卡片统一
 
 #### v1.2 体验增强
-- [ ] R2.3 查询历史与推荐
+- [x] R2.3 查询历史与推荐
 - [ ] R2.4 真正的语音唤醒与 STT（Porcupine / Whisper.cpp / 系统 API）
-- [ ] R2.5 呼吸灯与状态指示（Idle / Listening / Working / Warning）
+- [x] R2.5 呼吸灯与状态指示（Idle / Listening / Working / Warning）
 - [ ] R2.6 代码片段卡片（引用列表、变更历史附带代码片段与高亮）
 - [ ] R2.7 模糊意图学习闭环（`feedback.jsonl` 驱动模型改进）
 - [ ] R2.8 多项目快速切换（自然语言打开/切换项目）

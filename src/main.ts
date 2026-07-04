@@ -30,10 +30,44 @@ async function main() {
     console.log('\nNodus is ready. Type a query or /quit to exit.\n');
   }
 
+  // 记录最近一次推荐，用于序号执行
+  let lastRecommendations: Array<{ text: string; reason: string }> = [];
+
   process.stdin.setEncoding('utf-8');
   for await (const line of readLines(process.stdin)) {
     const input = line.trim();
-    if (!input) continue;
+    if (!input) {
+      // 空行 → 显示推荐
+      lastRecommendations = shell.getRecommendationList();
+      const output = shell.getRecommendations();
+      console.log(output);
+      continue;
+    }
+
+    // 数字序号 → 执行对应推荐
+    if (/^\d+$/.test(input) && lastRecommendations.length > 0) {
+      const idx = parseInt(input, 10) - 1;
+      if (idx >= 0 && idx < lastRecommendations.length) {
+        const recText = lastRecommendations[idx]!.text;
+        console.log(`> ${recText}`);
+        const output = await shell.handleQueryFormatted(recText);
+        console.log(output);
+        continue;
+      }
+    }
+
+    // 推荐已被消费，清空
+    lastRecommendations = [];
+
+    // /history 命令
+    if (input === '/history' || input.startsWith('/history ')) {
+      const parts = input.split(/\s+/);
+      const limit = parts[1] ? Math.min(parseInt(parts[1], 10) || 10, 50) : 10;
+      const output = shell.getHistory(limit);
+      console.log(output);
+      continue;
+    }
+
     if (input === '/quit' || input === '/exit') break;
 
     try {

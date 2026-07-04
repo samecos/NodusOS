@@ -7,6 +7,7 @@ import type { ProjectMeta } from '../common/types.js';
 import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { NodusError } from '../common/errors.js';
 import type { NodusConfig } from '../common/config.js';
+import type { BreathLightState } from '../ui/ui-renderer.js';
 
 // ---- 标准事件定义 ----
 
@@ -69,6 +70,11 @@ export interface ErrorEvent {
   error: NodusError;
 }
 
+export interface UIStateChangedEvent {
+  kind: 'ui:state_changed';
+  state: BreathLightState;
+}
+
 /** 所有标准事件的联合类型 */
 export type NodusEvent =
   | ConfigChangedEvent
@@ -81,7 +87,8 @@ export type NodusEvent =
   | VoiceSilentModeToggledEvent
   | QueryReceivedEvent
   | QueryResultEvent
-  | ErrorEvent;
+  | ErrorEvent
+  | UIStateChangedEvent;
 
 export type EventKind = NodusEvent['kind'];
 

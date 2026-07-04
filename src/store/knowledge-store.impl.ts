@@ -406,6 +406,26 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
     const rows = this.db.prepare(
       'SELECT * FROM query_history ORDER BY timestamp DESC LIMIT ?'
     ).all(limit) as Record<string, unknown>[];
+    return this.mapHistoryRows(rows);
+  }
+
+  historySearch(keyword: string, limit: number = 50): QueryHistoryEntry[] {
+    const pattern = `%${keyword}%`;
+    const rows = this.db.prepare(
+      'SELECT * FROM query_history WHERE raw_text LIKE @pattern ORDER BY timestamp DESC LIMIT @limit'
+    ).all({ pattern, limit }) as Record<string, unknown>[];
+    return this.mapHistoryRows(rows);
+  }
+
+  historyCleanup(beforeDate?: string): number {
+    const cutoff = beforeDate ?? this.daysAgoIso(90);
+    const result = this.db.prepare(
+      "DELETE FROM query_history WHERE timestamp < ?"
+    ).run(cutoff);
+    return result.changes;
+  }
+
+  private mapHistoryRows(rows: Record<string, unknown>[]): QueryHistoryEntry[] {
     return rows.map(row => ({
       raw_text: row.raw_text as string,
       intent_type: row.intent_type as string | undefined,
@@ -417,14 +437,6 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
       result_count: row.result_count as number,
       timestamp: row.timestamp as string,
     }));
-  }
-
-  historyCleanup(beforeDate?: string): number {
-    const cutoff = beforeDate ?? this.daysAgoIso(90);
-    const result = this.db.prepare(
-      "DELETE FROM query_history WHERE timestamp < ?"
-    ).run(cutoff);
-    return result.changes;
   }
 
   private daysAgoIso(days: number): string {

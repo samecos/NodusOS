@@ -9,6 +9,19 @@ import type { ProjectMeta } from '../common/types.js';
 import type { EnvStatus } from '../env-mgr/environment-manager.js';
 import { type NodusError } from '../common/errors.js';
 
+/** 查询历史展示条目 */
+export interface HistoryItem {
+  text: string;
+  intentType: string | null;
+  timestamp: string;
+}
+
+/** 推荐展示条目 */
+export interface RecommendationItem {
+  text: string;
+  reason: string;
+}
+
 export type CardKind =
   | 'symbol_list'
   | 'reference_list'
@@ -25,6 +38,8 @@ export type CardKind =
   | 'ambiguity'
   | 'env_status'
   | 'type_relationship_list'
+  | 'history_list'
+  | 'recommendation_list'
   | 'notification'
   | 'error';
 
@@ -38,6 +53,8 @@ export interface Card {
     | IntentError
     | ProjectMeta
     | QueryIntent[]
+    | HistoryItem[]
+    | RecommendationItem[]
     | { title: string; body: string }
     | { kind: 'error'; error: NodusError; module: string };
   createdAt: string;
@@ -58,6 +75,12 @@ export interface UIRenderer {
   /** 格式化通知 */
   renderNotification(title: string, body: string): string;
 
+  /** 渲染查询历史列表 */
+  renderHistory(items: HistoryItem[]): string;
+
+  /** 渲染推荐列表 */
+  renderRecommendations(items: RecommendationItem[]): string;
+
   // ---- 卡片系统 ----
   /** 创建一张结果卡片 */
   createCard(
@@ -68,6 +91,8 @@ export interface UIRenderer {
       | IntentError
       | ProjectMeta
       | QueryIntent[]
+      | HistoryItem[]
+      | RecommendationItem[]
       | { title: string; body: string }
       | { kind: 'error'; error: NodusError; module: string },
     ttlSeconds?: number,

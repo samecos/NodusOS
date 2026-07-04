@@ -348,6 +348,31 @@ describe('KnowledgeStore', () => {
     expect(recent[0].raw_text).toBe('recent query');
   });
 
+  // TC-UT-KS-018b: 模糊搜索查询历史
+  it('TC-UT-KS-018b: should search query history by keyword', () => {
+    store.historyRecord({
+      raw_text: 'refundOrder在哪里定义的',
+      intent_type: 'find_definition',
+      latency_ms: 100,
+      result_count: 1,
+      timestamp: new Date().toISOString(),
+    });
+    store.historyRecord({
+      raw_text: 'PaymentService被哪些地方调用了',
+      intent_type: 'find_references',
+      latency_ms: 120,
+      result_count: 3,
+      timestamp: new Date().toISOString(),
+    });
+
+    const results = store.historySearch('refund', 10);
+    expect(results).toHaveLength(1);
+    expect(results[0].raw_text).toContain('refundOrder');
+
+    const noResults = store.historySearch('nonexistent');
+    expect(noResults).toHaveLength(0);
+  });
+
   // ==========================================================
   // TC-UT-KS-019 ~ TC-UT-KS-021: 文件索引状态
   // ==========================================================

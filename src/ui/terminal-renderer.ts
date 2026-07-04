@@ -2,7 +2,7 @@
 // TerminalRenderer — 终端格式化输出
 // ============================================================
 
-import type { UIRenderer, Card, BreathLightState } from './ui-renderer.js';
+import type { UIRenderer, Card, BreathLightState, HistoryItem, RecommendationItem } from './ui-renderer.js';
 import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { IntentError, QueryIntent } from '../intent/intent-engine.js';
 import type { Symbol, Reference, ReferenceKind, CallGraph, CallGraphNode, ProjectMeta } from '../common/types.js';
@@ -79,6 +79,33 @@ export class TerminalRenderer implements UIRenderer {
     return `\n${c('▸ ' + title, BOLD)}\n${c(body, DIM)}\n`;
   }
 
+  renderHistory(items: HistoryItem[]): string {
+    if (items.length === 0) return c('\n暂无查询历史\n', DIM);
+
+    let out = c(`\n最近 ${items.length} 条查询:\n`, BOLD);
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]!;
+      const time = item.timestamp.slice(11, 19); // HH:MM:SS
+      const intent = item.intentType ?? c('未知', DIM);
+      out += `\n  ${c(String(i + 1).padStart(2, ' '), YELLOW)}  ${c(time, DIM)}  ${c(intent, BLUE)}`;
+      out += `\n      ${item.text}`;
+    }
+    return out + '\n';
+  }
+
+  renderRecommendations(items: RecommendationItem[]): string {
+    if (items.length === 0) return c('\n暂无推荐，试试输入查询吧\n', DIM);
+
+    let out = c('\n你可能想问:\n', BOLD);
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]!;
+      out += `\n  ${c(String(i + 1), YELLOW)}  ${c(item.text, BOLD)}`;
+      out += `\n     ${c(item.reason, DIM)}`;
+    }
+    out += `\n${c('输入序号即可执行推荐查询', DIM)}\n`;
+    return out;
+  }
+
   // ---- 卡片系统 ----
 
   private cards = new Map<string, Card>();
@@ -91,6 +118,8 @@ export class TerminalRenderer implements UIRenderer {
       | IntentError
       | ProjectMeta
       | QueryIntent[]
+      | HistoryItem[]
+      | RecommendationItem[]
       | { title: string; body: string }
       | { kind: 'error'; error: NodusError; module: string },
     ttlSeconds?: number,
@@ -135,6 +164,13 @@ export class TerminalRenderer implements UIRenderer {
         return this.renderError(card.data as IntentError);
       }
     }
+    // HistoryItem[] 或 RecommendationItem[] — 通过 title 推断
+    if (card.kind === 'history_list') {
+      return this.renderHistory(card.data as HistoryItem[]);
+    }
+    if (card.kind === 'recommendation_list') {
+      return this.renderRecommendations(card.data as RecommendationItem[]);
+    }
     if (Array.isArray(card.data) && card.data.length > 0 && 'intentType' in card.data[0]) {
       return this.renderAmbiguous(card.data as QueryIntent[]);
     }
@@ -151,15 +187,15 @@ export class TerminalRenderer implements UIRenderer {
   // ---- 呼吸灯 ----
 
   setBreathLight(state: BreathLightState): void {
-    // 终端渲染器：以状态标签形式输出
-    const labels: Record<BreathLightState, string> = {
-      idle: '[idle]',
-      listening: '[listening]',
-      thinking: '[thinking]',
-      speaking: '[speaking]',
-      error: '[error]',
+    const config: Record<BreathLightState, { icon: string; label: string; color: string }> = {
+      idle:       { icon: '○', label: 'Nodus',  color: DIM },
+      listening:  { icon: '◐', label: 'listening', color: BLUE },
+      thinking:   { icon: '◑', label: 'thinking...', color: YELLOW },
+      speaking:   { icon: '●', label: 'speaking', color: GREEN },
+      error:      { icon: '✖', label: 'error',   color: RED },
     };
-    console.log(c(labels[state] ?? '[unknown]', DIM));
+    const { icon, label, color: col } = config[state] ?? config.idle;
+    console.log(c(`${icon} ${label}`, col));
   }
 
   // ---- 输入条 ----
@@ -501,7 +537,11 @@ export class TerminalRenderer implements UIRenderer {
         return 'ambiguity';
       }
     }
-    if (Array.isArray(data) && data.length > 0 && 'intentType' in data[0]) return 'ambiguity';
+    if (Array.isArray(data) && data.length > 0) {
+      if ('intentType' in data[0]) return 'ambiguity';
+      if ('text' in data[0] && 'reason' in data[0]) return 'recommendation_list';
+      if ('text' in data[0] && 'timestamp' in data[0]) return 'history_list';
+    }
     if ('root_path' in data) return 'env_status';
     if ('title' in data && 'body' in data) return 'notification';
     return 'notification';

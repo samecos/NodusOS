@@ -456,4 +456,52 @@ describe('TerminalRenderer', () => {
     expect(out).toContain(CodeIntelError.NO_PARSER);
     expect(out).toContain('code_intel');
   });
+
+  // TC-UT-UI-023: 查询历史渲染
+  it('TC-UT-UI-023: should render history list', () => {
+    const out = renderer.renderHistory([
+      { text: 'refundOrder在哪里定义的', intentType: 'find_definition', timestamp: '2026-07-02T10:30:00Z' },
+      { text: '项目代码统计', intentType: 'stats', timestamp: '2026-07-02T11:00:00Z' },
+    ]);
+    expect(out).toContain('2 条查询');
+    expect(out).toContain('refundOrder');
+    expect(out).toContain('项目代码统计');
+    expect(out).toContain('find_definition');
+  });
+
+  // TC-UT-UI-023b: 空历史
+  it('TC-UT-UI-023b: should render empty history', () => {
+    const out = renderer.renderHistory([]);
+    expect(out).toContain('暂无');
+  });
+
+  // TC-UT-UI-024: 推荐列表渲染
+  it('TC-UT-UI-024: should render recommendations', () => {
+    const out = renderer.renderRecommendations([
+      { text: 'refundOrder被哪些地方调用了', reason: '当前光标位于 refundOrder' },
+      { text: '项目代码统计', reason: '近期执行了 3 次' },
+    ]);
+    expect(out).toContain('你可能想问');
+    expect(out).toContain('refundOrder');
+    expect(out).toContain('当前光标');
+    expect(out).toContain('序号');
+  });
+
+  // TC-UT-UI-024b: 空推荐
+  it('TC-UT-UI-024b: should render empty recommendations', () => {
+    const out = renderer.renderRecommendations([]);
+    expect(out).toContain('暂无推荐');
+  });
+
+  // TC-UT-UI-025: 呼吸灯应带图标和颜色
+  it('TC-UT-UI-025: should render breath light with icon and color', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    renderer.setBreathLight('idle');
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('○'));
+    renderer.setBreathLight('thinking');
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('◑'));
+    renderer.setBreathLight('error');
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('✖'));
+    spy.mockRestore();
+  });
 });

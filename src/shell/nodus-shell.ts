@@ -14,8 +14,10 @@ import { FileWatcherImpl } from '../file-watcher/file-watcher.impl.js';
 import { PatternIntentEngine } from '../intent/intent-engine.impl.js';
 import { SystemVoicePipeline } from '../voice/voice-pipeline.impl.js';
 import { TerminalRenderer } from '../ui/terminal-renderer.js';
+import { QueryCache } from './query-cache.js';
+import { RecommendationEngine } from './recommendation-engine.js';
 import type { EventBus } from './event-bus.js';
-import { createErrorCard, type UIRenderer } from '../ui/ui-renderer.js';
+import { createErrorCard, type UIRenderer, type BreathLightState, type HistoryItem, type RecommendationItem } from '../ui/ui-renderer.js';
 import type { ContextManager } from '../context/context-manager.js';
 import type { CodeIntelligence } from '../code-intel/code-intelligence.js';
 import type { EnvironmentManager } from '../env-mgr/environment-manager.js';
@@ -45,6 +47,8 @@ export class NodusShell {
   private modules = new Map<string, unknown>();
   private unsubscribeConfig?: () => void;
   private isShutdown = false;
+  private queryCache: QueryCache;
+  private recommendationEngine: RecommendationEngine;
 
   constructor(configManager: ConfigManager) {
     this.configManager = configManager;
@@ -73,8 +77,10 @@ export class NodusShell {
     this.intentEngine = new PatternIntentEngine();
     this.voicePipeline = new SystemVoicePipeline(this.eventBus);
 
-    // Phase 4: 界面
+    // Phase 4: 界面 + 缓存
     this.uiRenderer = new TerminalRenderer();
+    this.queryCache = new QueryCache();
+    this.recommendationEngine = new RecommendationEngine(this.store, this.contextMgr);
 
     // 注册模块到 registry
     this.modules.set('store', this.store);
@@ -105,6 +111,7 @@ export class NodusShell {
     }
 
     console.log('[Nodus] Ready.');
+    this.setBreathLight('idle');
   }
 
   /** 动态注册模块 */
@@ -236,9 +243,18 @@ export class NodusShell {
 
   async handleQueryFormatted(text: string): Promise<string> {
     this.eventBus.emit({ kind: 'query:received', text });
+    this.setBreathLight('thinking');
 
     try {
+      // 缓存查找
       const context = this.contextMgr.snapshot();
+      const cacheKey = QueryCache.buildKey(text, context);
+      const cached = this.queryCache.get(cacheKey);
+      if (cached) {
+        this.setBreathLight('idle');
+        return cached + ' \x1b[2m[cached]\x1b[0m';
+      }
+
       const result = this.intentEngine.parse(
         { source: 'text', text, locale: this.config.locale ?? 'zh-CN' },
         context,
@@ -246,6 +262,7 @@ export class NodusShell {
 
       // Intent error — 直接格式化错误
       if ('kind' in result && !('intentType' in result)) {
+        this.setBreathLight('idle');
         return this.uiRenderer.renderError(result as unknown as import('../intent/intent-engine.js').IntentError);
       }
 
@@ -264,12 +281,17 @@ export class NodusShell {
         timestamp: new Date().toISOString(),
       });
 
-      return this.uiRenderer.render(queryResult);
+      const output = this.uiRenderer.render(queryResult);
+      this.queryCache.set(cacheKey, output);
+      this.setBreathLight('idle');
+      return output;
     } catch (err) {
       const nodusErr = err instanceof NodusError
         ? err
         : new NodusError('SHELL_QUERY_FAILED', err instanceof Error ? err.message : String(err), { cause: err });
       this.eventBus.emit({ kind: 'error', module: 'shell', error: nodusErr });
+      this.setBreathLight('error');
+      this.setBreathLight('idle');
       return this.uiRenderer.renderCard(createErrorCard(this.uiRenderer, nodusErr, 'shell', '查询失败'));
     }
   }
@@ -305,6 +327,38 @@ export class NodusShell {
   }
 
   // ---- helpers ----
+
+  private setBreathLight(state: BreathLightState): void {
+    this.uiRenderer.setBreathLight(state);
+    this.eventBus.emit({ kind: 'ui:state_changed', state });
+  }
+
+  /** 获取最近查询历史，返回渲染好的字符串 */
+  getHistory(limit = 10): string {
+    const entries = this.store.historyRecent(limit);
+    const items: HistoryItem[] = entries.map(e => ({
+      text: e.raw_text,
+      intentType: e.intent_type ?? null,
+      timestamp: e.timestamp,
+    }));
+    return this.uiRenderer.renderHistory(items);
+  }
+
+  /** 获取推荐，返回渲染好的字符串 */
+  getRecommendations(): string {
+    const recs = this.recommendationEngine.generate();
+    const items: RecommendationItem[] = recs.map(r => ({
+      text: r.text,
+      reason: r.reason,
+    }));
+    return this.uiRenderer.renderRecommendations(items);
+  }
+
+  /** 获取推荐原始数据（供 REPL 序号执行使用） */
+  getRecommendationList(): RecommendationItem[] {
+    const recs = this.recommendationEngine.generate();
+    return recs.map(r => ({ text: r.text, reason: r.reason }));
+  }
 
   private countResults(result: QueryResult): number {
     switch (result.kind) {
@@ -346,6 +400,7 @@ export class NodusShell {
 
     // 错误事件 → 统一降级卡片
     this.eventBus.on('error', (event) => {
+      this.setBreathLight('error');
       const card = createErrorCard(
         this.uiRenderer,
         event.error,
