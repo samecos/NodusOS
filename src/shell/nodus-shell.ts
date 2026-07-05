@@ -438,6 +438,11 @@ export class NodusShell {
         }
         this.queryCache.set(cacheKey, out);
         this.setBreathLight('idle');
+        try {
+          this.flywheel.emitConventions(projectRoot);
+        } catch (err) {
+          console.error('[understanding-layer] emitConventions failed:', err);
+        }
         return out;
       }
 
@@ -452,6 +457,12 @@ export class NodusShell {
           return `${RED}无法读取文件: ${filePath}${RESET}\n`;
         }
         const debts = this.debtEngine.getDebtByFile(filePath);
+        // §4.2 examined 态：用户查看了标注视图即视为已审视，债值减半（仅未确认项）
+        for (const d of debts) {
+          if (!d.confirmed) {
+            this.debtEngine.markExamined(d.symbol_id);
+          }
+        }
         const output = renderAnnotatedView(filePath, code, debts, []);
         const result = { kind: 'annotated_view' as const, filePath, content: code, output };
         this.setBreathLight('idle');
@@ -476,6 +487,10 @@ export class NodusShell {
           return `${DIM}无语义块。${RESET}\n`;
         }
         const brief = this.chunker.brief(chunk, batch);
+        // §4.2 examined 态：用户查看了 brief 即视为已审视，债值减半
+        for (const s of chunk.symbols) {
+          this.debtEngine.markExamined(s.symbol_id);
+        }
         this.setBreathLight('idle');
         return this.uiRenderer.render({ kind: 'brief_card', brief });
       }
