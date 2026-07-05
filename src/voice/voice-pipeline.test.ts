@@ -1,6 +1,6 @@
 // ============================================================
 // VoicePipeline 单元测试
-// TC-UT-VP-001 ~ TC-UT-VP-006
+// TC-UT-VP-001 ~ TC-UT-VP-008
 // ============================================================
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -102,5 +102,35 @@ describe('SystemVoicePipeline', () => {
   // TC-UT-VP-006: speak 不抛异常（无实际音频输出验证）
   it('TC-UT-VP-006: should speak without throwing', async () => {
     await expect(pipeline.speak('hello')).resolves.toBeUndefined();
+  });
+
+  // TC-UT-VP-007: 唤醒词检测 → 录音 → 转写完整流程
+  it('TC-UT-VP-007: should detect wake word, record and transcribe in loop', async () => {
+    wakeWord.setNextResultOnce(true);
+    stt.setNextResult('refundOrder 在哪里定义的');
+
+    const events: unknown[] = [];
+    eventBus.on('voice:transcribed', (e) => events.push(e));
+
+    await pipeline.start();
+
+    // 等待循环执行一次唤醒流程（Mock 组件都是瞬间返回的，200ms 足够）
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    await pipeline.stop();
+
+    expect(events.length).toBe(1);
+    expect((events[0] as { text: string }).text).toBe('refundOrder 在哪里定义的');
+    expect(wakeWord.getDetectCount()).toBeGreaterThanOrEqual(1);
+    expect(recorder.getLastRecordingPath()).toBe('/tmp/mock-recording.wav');
+  });
+
+  // TC-UT-VP-008: 静音模式下不启动监听循环
+  it('TC-UT-VP-008: should not start listen loop in silent mode', async () => {
+    pipeline.setSilentMode(true);
+    await pipeline.start();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await pipeline.stop();
+    expect(wakeWord.getDetectCount()).toBe(0);
   });
 });

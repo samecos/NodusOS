@@ -6,7 +6,7 @@
 export type SymbolId = string;
 
 /** 编程语言 */
-export type Language = 'typescript' | 'javascript' | 'python';
+export type Language = 'typescript' | 'javascript' | 'python' | 'rust' | 'go' | 'java' | 'csharp' | 'cpp';
 
 /** 符号种类 */
 export type SymbolKind =
@@ -168,6 +168,18 @@ export interface SessionState {
   updated_at?: string;
 }
 
+/** 人工标注条目 — 用于 AI 生成结果的人工反馈与训练数据积累 */
+export interface AnnotationEntry {
+  id?: number;
+  query_history_id?: number;
+  input_text: string;
+  intent_type: string;
+  output_data: string;
+  user_rating?: number | null;
+  user_correction?: string | null;
+  created_at?: string;
+}
+
 /** 索引状态 */
 export type IndexStatus =
   | { kind: 'idle' }
@@ -188,7 +200,10 @@ export type IntentType =
   | 'list_symbols'
   | 'stats'
   | 'analytics'
-  | 'type_relationships';
+  | 'type_relationships'
+  | 'code_review'
+  | 'switch_project'
+  | 'list_projects';
 
 /** 变更范围 */
 export type ChangeScope =
@@ -206,4 +221,44 @@ export interface FileIndexState {
   symbol_count: number;
   indexed_at: string;
   error?: string;
+}
+
+/** 同步数据包 — 多设备同步的核心数据结构 */
+export interface SyncData {
+  /** 数据格式版本 */
+  version: number;
+  /** 导出设备标识 */
+  deviceId: string;
+  /** 导出时间戳（ISO 8601） */
+  exportedAt: string;
+  /** 查询历史 */
+  queryHistory: QueryHistoryEntry[];
+  /** 用户偏好设置 */
+  preferences: Record<string, unknown>;
+  /** 项目列表 */
+  projects: ProjectMeta[];
+  /** 会话状态 */
+  sessionStates: SessionState[];
+  /** 反馈数据（feedback.jsonl 的原始行） */
+  feedbackEntries: string[];
+}
+export interface FileIndexState {
+  file_path: string;
+  checksum: string;
+  symbol_count: number;
+  indexed_at: string;
+  error?: string;
+}
+
+/** 单个代码变更记录（git diff 兼容的统一差异格式） */
+export interface CodeChange {
+  file_path: string;
+  change_type: 'modified' | 'added' | 'deleted' | 'renamed';
+  old_start_line?: number;
+  old_end_line?: number;
+  new_start_line?: number;
+  new_end_line?: number;
+  old_code?: string;
+  new_code?: string;
+  diff_text: string;
 }

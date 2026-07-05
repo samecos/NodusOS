@@ -3,7 +3,7 @@
 // 与 ArchitecturalDesignPhase/04-API-Reference.md §4 一致
 // ============================================================
 
-import type { IntentType } from '../common/types.js';
+import type { IntentType, SymbolKind } from '../common/types.js';
 
 /** 上下文快照。高频读取，延迟 < 1ms。 */
 export interface Context {
@@ -11,6 +11,7 @@ export interface Context {
   cursor_line: number | null;
   cursor_col: number | null;
   cursor_symbol: string | null;
+  cursor_symbol_kind?: SymbolKind | null;
   selected_code: string | null;
   selected_range: [number, number] | null;
   recent_queries: RecentQuery[];
@@ -27,7 +28,7 @@ export interface RecentQuery {
 export type ContextDelta =
   | { kind: 'file_opened'; path: string }
   | { kind: 'file_closed'; path: string }
-  | { kind: 'cursor_moved'; file: string; line: number; col: number; symbol: string | null }
+  | { kind: 'cursor_moved'; file: string; line: number; col: number; symbol: string | null; symbol_kind?: SymbolKind | null }
   | { kind: 'selection_changed'; file: string; range: [number, number]; code: string }
   | { kind: 'project_changed'; root: string };
 

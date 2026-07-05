@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import type { Language, Symbol, Reference, ReferenceKind, SymbolKind, ImportBinding, ReexportInfo } from '../../common/types.js';
 import type { LanguageParser, CallEdge } from '../language-parser.js';
 import { hashSymbolId } from './utils.js';
+import type { ParsedFile } from './plugin-system.js';
 
 const require = createRequire(import.meta.url);
 const ParserCtor = (require('tree-sitter') as { default?: new () => TreeSitterParser }).default
@@ -474,6 +475,20 @@ export class TypeScriptParser implements LanguageParser {
       return methodName;
     }
     return null;
+  }
+
+  // ---- LanguagePlugin 实现 ----
+
+  get name(): string { return 'typescript'; }
+  get extensions(): string[] { return ['.ts', '.tsx', '.js', '.jsx']; }
+
+  parse(filePath: string, content: string): ParsedFile {
+    const symbols = this.parseSymbols(content, filePath);
+    const references = this.parseReferences(content, symbols);
+    const callEdges = this.parseCallEdges(content, symbols);
+    const importBindings = this.parseImportBindings(content, filePath);
+    const reexports = this.parseReexports(content, filePath);
+    return { symbols, references, callEdges, importBindings, reexports };
   }
 }
 

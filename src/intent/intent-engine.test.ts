@@ -2,7 +2,7 @@
 // IntentEngine 测试 — TC-UT-IE-001 ~ TC-UT-IE-015
 // ============================================================
 
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { PatternIntentEngine } from './intent-engine.impl.js';
 import type { Context, QueryIntent } from './intent-engine.js';
 import { writeFileSync, mkdtempSync, rmSync, mkdirSync } from 'node:fs';
@@ -13,9 +13,9 @@ let feedbackTmpDir: string;
 
 function makeCtx(overrides: Partial<Context> = {}): Context {
   return {
-    active_file: null, cursorLine: null, cursorCol: null,
-    cursor_symbol: null, selectedCode: null, selectedRange: null,
-    recentQueries: [], activeProjectRoot: '/test',
+    active_file: null, cursor_line: null, cursor_col: null,
+    cursor_symbol: null, selected_code: null, selected_range: null,
+    recent_queries: [], active_project_root: '/test',
     ...overrides,
   };
 }
@@ -158,7 +158,71 @@ describe('IntentEngine', () => {
     }
   });
 
-  // TC-UT-IE-014: resolve_ambiguity
+  // TC-UT-IE-024: 光标在函数内 → 推荐 call_graph
+  it('TC-UT-IE-024: should recommend call_graph when cursor is in function', () => {
+    const ctx = makeCtx({ cursor_symbol: 'processOrder', cursor_symbol_kind: 'function' });
+    const result = engine.parse({ source: 'text', text: '分析一下', locale: 'zh-CN' }, ctx);
+    expect('intentType' in result && result.intentType).toBe('call_graph');
+    if ('entities' in result) {
+      expect(result.entities?.symbolName).toBe('processOrder');
+      expect(result.context?.implicitParams?.cursorKind).toBe('function');
+    }
+  });
+
+  // TC-UT-IE-025: 选中代码块 → 推荐 impact_analysis
+  it('TC-UT-IE-025: should recommend impact_analysis when code is selected and text is unparseable', () => {
+    const ctx = makeCtx({ selected_code: 'function calculateTotal() { return a + b; }' });
+    const result = engine.parse({ source: 'text', text: '随便看看', locale: 'zh-CN' }, ctx);
+    expect('intentType' in result && result.intentType).toBe('impact_analysis');
+    if ('entities' in result) {
+      expect(result.entities?.symbolName).toBe('calculateTotal');
+      expect(result.context?.implicitParams?.hasSelection).toBe(true);
+    }
+  });
+
+  // TC-UT-IE-026: 光标在类定义 → 推荐 type_relationships
+  it('TC-UT-IE-026: should recommend type_relationships when cursor is in class', () => {
+    const ctx = makeCtx({ cursor_symbol: 'PaymentService', cursor_symbol_kind: 'class' });
+    const result = engine.parse({ source: 'text', text: '查询一下', locale: 'zh-CN' }, ctx);
+    expect('intentType' in result && result.intentType).toBe('type_relationships');
+    if ('entities' in result) {
+      expect(result.entities?.symbolName).toBe('PaymentService');
+      expect(result.context?.implicitParams?.cursorKind).toBe('class');
+    }
+  });
+
+  // TC-UT-IE-027: 查询含代词 → 替换为上下文符号名
+  it('TC-UT-IE-027: should replace pronoun with context symbol name', () => {
+    const ctx = makeCtx({ cursor_symbol: 'refundOrder' });
+    const result = engine.parse({ source: 'text', text: '这个的调用链路', locale: 'zh-CN' }, ctx);
+    expect('intentType' in result && result.intentType).toBe('call_graph');
+    if ('entities' in result) {
+      expect(result.entities?.symbolName).toBe('refundOrder');
+      expect(result.context?.implicitParams?.replacedPronoun).toBe(true);
+    }
+  });
+
+  // TC-UT-IE-028: 空查询 + 有选中代码 → 推断最合适意图
+  it('TC-UT-IE-028: should infer intent from empty query with selected code', () => {
+    const ctx = makeCtx({ selected_code: 'class UserService { getUser() {} }' });
+    const result = engine.parse({ source: 'text', text: '', locale: 'zh-CN' }, ctx);
+    expect('intentType' in result && result.intentType).toBe('type_relationships');
+    if ('entities' in result) {
+      expect(result.entities?.symbolName).toBe('UserService');
+      expect(result.context?.implicitParams?.inferredReason).toBe('selection_contains_type_definition');
+    }
+  });
+
+  // TC-UT-IE-029: 英文代词 this 替换
+  it('TC-UT-IE-029: should replace English pronoun this with context symbol', () => {
+    const ctx = makeCtx({ cursor_symbol: 'getUserById' });
+    const result = engine.parse({ source: 'text', text: 'where is this defined', locale: 'en-US' }, ctx);
+    expect('intentType' in result && result.intentType).toBe('find_definition');
+    if ('entities' in result) {
+      expect(result.entities?.symbolName).toBe('getUserById');
+      expect(result.context?.implicitParams?.replacedPronoun).toBe(true);
+    }
+  });
   it('should resolve ambiguity by index', () => {
     const candidates = [
       { rawText: 'a', intentType: 'find_definition' as const, confidence: 0.5, entities: {} },
@@ -178,6 +242,16 @@ describe('IntentEngine', () => {
       expect(result.intentType).toBe('type_relationships');
       expect(result.entities.symbolName).toBe('IUserService');
       expect(result.entities.relationshipKind).toBe('implementations');
+    }
+  });
+
+  // TC-UT-IE-021: 代码评审意图应提取 commit hash
+  it('TC-UT-IE-021: should parse code_review intent and extract commit hash', () => {
+    const result = engine.parse({ source: 'text', text: '评审 commit abc1234def', locale: 'zh-CN' }, emptyContext);
+    expect(result).not.toHaveProperty('kind');
+    if (!('kind' in result)) {
+      expect(result.intentType).toBe('code_review');
+      expect(result.entities.commitHash).toBe('abc1234def');
     }
   });
 

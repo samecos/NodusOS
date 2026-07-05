@@ -11,7 +11,7 @@ import type {
   ProjectMeta, QueryHistoryEntry,
   PackageManager,
   FileIndexState, RuntimeRequirement, Dependency,
-  SessionState,
+  SessionState, AnnotationEntry,
 } from '../common/types.js';
 import type { KnowledgeStore } from './knowledge-store.js';
 import { MigrationRunner } from './migrations.js';
@@ -383,6 +383,19 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
     this.db.prepare('DELETE FROM preferences WHERE key = ?').run(key);
   }
 
+  prefList(): Record<string, unknown> {
+    const rows = this.db.prepare('SELECT key, value FROM preferences').all() as Array<{ key: string; value: string }>;
+    const result: Record<string, unknown> = {};
+    for (const row of rows) {
+      try {
+        result[row.key] = JSON.parse(row.value);
+      } catch {
+        result[row.key] = row.value;
+      }
+    }
+    return result;
+  }
+
   // ========== 查询历史 ==========
 
   historyRecord(entry: QueryHistoryEntry): void {
@@ -463,18 +476,106 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
   sessionStateUpsert(state: SessionState): void {
     this.db.prepare(`
       INSERT OR REPLACE INTO session_state (project_root, active_file, cursor_line, cursor_col, cursor_symbol, updated_at)
-      VALUES (?, ?, ?, ?, ?, datetime('now'))
+      VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       state.project_root,
       state.active_file ?? null,
       state.cursor_line ?? null,
       state.cursor_col ?? null,
       state.cursor_symbol ?? null,
+      state.updated_at ?? new Date().toISOString(),
     );
   }
 
   sessionStateRemove(projectRoot: string): void {
     this.db.prepare('DELETE FROM session_state WHERE project_root = ?').run(projectRoot);
+  }
+
+  // ========== 人工标注 ==========
+
+  annotationRecord(entry: AnnotationEntry): number {
+    const result = this.db.prepare(`
+      INSERT INTO annotations (query_history_id, input_text, intent_type, output_data, user_rating, user_correction, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      entry.query_history_id ?? null,
+      entry.input_text,
+      entry.intent_type,
+      entry.output_data,
+      entry.user_rating ?? null,
+      entry.user_correction ?? null,
+      entry.created_at ?? new Date().toISOString(),
+    );
+    return Number(result.lastInsertRowid);
+  }
+
+  annotationGet(id: number): AnnotationEntry | undefined {
+    const row = this.db.prepare('SELECT * FROM annotations WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    if (!row) return undefined;
+    return this.rowToAnnotation(row);
+  }
+
+  annotationList(limit: number = 50): AnnotationEntry[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM annotations ORDER BY created_at DESC, id DESC LIMIT ?'
+    ).all(limit) as Record<string, unknown>[];
+    return rows.map(row => this.rowToAnnotation(row));
+  }
+
+  annotationUpdate(id: number, updates: Partial<Omit<AnnotationEntry, 'id' | 'created_at'>>): boolean {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+
+    if (updates.query_history_id !== undefined) {
+      sets.push('query_history_id = ?');
+      values.push(updates.query_history_id ?? null);
+    }
+    if (updates.input_text !== undefined) {
+      sets.push('input_text = ?');
+      values.push(updates.input_text);
+    }
+    if (updates.intent_type !== undefined) {
+      sets.push('intent_type = ?');
+      values.push(updates.intent_type);
+    }
+    if (updates.output_data !== undefined) {
+      sets.push('output_data = ?');
+      values.push(updates.output_data);
+    }
+    if (updates.user_rating !== undefined) {
+      sets.push('user_rating = ?');
+      values.push(updates.user_rating ?? null);
+    }
+    if (updates.user_correction !== undefined) {
+      sets.push('user_correction = ?');
+      values.push(updates.user_correction ?? null);
+    }
+
+    if (sets.length === 0) return false;
+
+    values.push(id);
+    const result = this.db.prepare(
+      `UPDATE annotations SET ${sets.join(', ')} WHERE id = ?`
+    ).run(...values);
+    return result.changes > 0;
+  }
+
+  annotationDelete(id: number): boolean {
+    const result = this.db.prepare('DELETE FROM annotations WHERE id = ?').run(id);
+    return result.changes > 0;
+  }
+
+  private rowToAnnotation(row: Record<string, unknown>): AnnotationEntry {
+    return {
+      id: row.id as number,
+      query_history_id: row.query_history_id as number | undefined,
+      input_text: row.input_text as string,
+      intent_type: row.intent_type as string,
+      output_data: row.output_data as string,
+      user_rating: row.user_rating as number | null,
+      user_correction: row.user_correction as string | null,
+      created_at: row.created_at as string,
+    };
   }
 
   // ========== 生命周期 ==========

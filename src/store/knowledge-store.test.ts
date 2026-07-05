@@ -1,5 +1,5 @@
 // ============================================================
-// KnowledgeStore 单元测试 — TC-UT-KS-001 ~ TC-UT-KS-025, TC-UT-STORE-015 ~ TC-UT-STORE-017
+// KnowledgeStore 单元测试 — TC-UT-KS-001 ~ TC-UT-KS-025, TC-UT-STORE-015 ~ TC-UT-STORE-017, TC-UT-ANNO-001 ~ TC-UT-ANNO-005
 // ============================================================
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -501,6 +501,78 @@ describe('KnowledgeStore', () => {
       });
       store.sessionStateRemove('/tmp/project-c');
       expect(store.sessionStateGet('/tmp/project-c')).toBeUndefined();
+    });
+  });
+
+  // ==========================================================
+  // TC-UT-ANNO-001 ~ TC-UT-ANNO-005: 人工标注飞轮
+  // ==========================================================
+  describe('annotations', () => {
+    // TC-UT-ANNO-001: 应记录标注条目
+    it('TC-UT-ANNO-001: should record annotation entry', () => {
+      const id = store.annotationRecord({
+        input_text: 'refundOrder在哪里定义的',
+        intent_type: 'find_definition',
+        output_data: JSON.stringify({ kind: 'symbol_list', symbols: [] }),
+      });
+
+      expect(id).toBeGreaterThan(0);
+
+      const anno = store.annotationGet(id);
+      expect(anno).toBeDefined();
+      expect(anno!.input_text).toBe('refundOrder在哪里定义的');
+      expect(anno!.intent_type).toBe('find_definition');
+      expect(anno!.output_data).toBe(JSON.stringify({ kind: 'symbol_list', symbols: [] }));
+      expect(anno!.user_rating).toBeNull();
+      expect(anno!.user_correction).toBeNull();
+    });
+
+    // TC-UT-ANNO-002: 应列出标注条目
+    it('TC-UT-ANNO-002: should list annotation entries', () => {
+      store.annotationRecord({ input_text: 'query A', intent_type: 'find_definition', output_data: '{}' });
+      store.annotationRecord({ input_text: 'query B', intent_type: 'find_references', output_data: '{}' });
+      store.annotationRecord({ input_text: 'query C', intent_type: 'call_graph', output_data: '{}' });
+
+      const list = store.annotationList(2);
+      expect(list).toHaveLength(2);
+      // 最近的在前面
+      expect(list[0].input_text).toBe('query C');
+      expect(list[1].input_text).toBe('query B');
+    });
+
+    // TC-UT-ANNO-003: 应更新用户评分与纠正
+    it('TC-UT-ANNO-003: should update user rating and correction', () => {
+      const id = store.annotationRecord({
+        input_text: 'test query',
+        intent_type: 'find_definition',
+        output_data: '{}',
+      });
+
+      const updated = store.annotationUpdate(id, { user_rating: 5, user_correction: '应该返回 foo 而非 bar' });
+      expect(updated).toBe(true);
+
+      const anno = store.annotationGet(id);
+      expect(anno!.user_rating).toBe(5);
+      expect(anno!.user_correction).toBe('应该返回 foo 而非 bar');
+    });
+
+    // TC-UT-ANNO-004: 更新不存在条目应返回 false
+    it('TC-UT-ANNO-004: should return false when updating non-existent annotation', () => {
+      const updated = store.annotationUpdate(99999, { user_rating: 3 });
+      expect(updated).toBe(false);
+    });
+
+    // TC-UT-ANNO-005: 应删除标注条目
+    it('TC-UT-ANNO-005: should delete annotation entry', () => {
+      const id = store.annotationRecord({
+        input_text: 'to be deleted',
+        intent_type: 'find_definition',
+        output_data: '{}',
+      });
+
+      const deleted = store.annotationDelete(id);
+      expect(deleted).toBe(true);
+      expect(store.annotationGet(id)).toBeUndefined();
     });
   });
 });

@@ -10,10 +10,14 @@
 
 一句话定义：**用说话的方式理解代码库。环境这件事不让人看见。**
 
-当前 MVP 聚焦两块基石：
+当前已实现的 CLI 能力覆盖：
 
 1. **语义代码索引（脑）**：基于 tree-sitter 抽取符号、引用、调用图、类型关系与代码统计。
-2. **全托管环境（手）**：自动检测项目类型、运行时与依赖，并尝试安装。
+2. **代码分析**：死代码、模块耦合、变更热点、最长调用链、TODO 扫描、复杂度等。
+3. **代码评审**：基于 Git diff + 符号索引生成风险/风格/bug 分级意见。
+4. **代码生成与重构**：生成 git diff 形式的重构建议（已模块实现，部分尚未接入 REPL 主流程）。
+5. **环境托管（手）**：自动检测项目类型、运行时、依赖与外部服务，并尝试安装。
+6. **学习与同步**：查询历史、反馈学习、多设备同步、团队协作索引共享。
 
 > 重要：本项目不是编辑器替代品，定位是与 VSCode 等工具共存的“OS 层信息整合器”。
 
@@ -26,10 +30,11 @@
 | 运行时 | Node.js + TypeScript | `package.json` 要求 `>=20.0.0` |
 | 模块系统 | ESM | `package.json` 中 `"type": "module"`，`tsconfig.json` 用 `nodenext` |
 | 数据库 | SQLite via `better-sqlite3` | 本地嵌入式，无服务端 |
-| 代码解析 | `tree-sitter` + 各语言 grammar | 支持 TS/JS/Python |
+| 代码解析 | `tree-sitter` + 各语言 grammar | 当前支持 TS/JS/Python；插件框架已支持更多语言扩展 |
 | 测试 | Vitest | 配置见 `vitest.config.ts` |
 | 类型检查 | `tsc --noEmit` | 严格模式已开启 |
 | 开发启动 | `tsx src/main.ts` | 见 `npm run dev` |
+| 包管理器 | npm（主要） | `package.json` 脚本使用 npm；`package-lock.json` 与 `pnpm-lock.yaml` 被 `.gitignore` 忽略 |
 
 ### 2.1 入口与运行方式
 
@@ -58,7 +63,20 @@ auth模块最近一周改了什么
 项目代码统计
 ```
 
-输入 `/quit` 或 `/exit` 退出。
+常用 REPL 命令：
+
+| 命令 | 作用 |
+|------|------|
+| `/quit` 或 `/exit` | 退出 Nodus |
+| `/help` | 显示可用命令与示例 |
+| `/list` | 列出所有可调用的查询能力 |
+| `/history [n]` | 查看最近 n 条查询历史（默认 10，最大 50） |
+| `/learn` | 从 `~/.nodus/feedback.jsonl` 重新加载学习句式 |
+| `/feedback <文本>` | 提交使用反馈 |
+| `/switch <项目路径>` | 切换到指定项目 |
+| `/list-projects` | 列出所有已配置的项目 |
+| `/sync` | 导出多设备同步数据（JSON） |
+| *(空行)* | 显示推荐查询，输入序号即可执行 |
 
 ### 2.2 原生依赖与兼容性
 
@@ -92,6 +110,8 @@ NodusOS/
 ├── ArchitecturalDesignPhase/     # 架构阶段文档
 ├── TestDesignPhase/              # 测试设计文档
 ├── package.json
+├── package-lock.json             # 被 gitignore 忽略
+├── pnpm-lock.yaml                # 被 gitignore 忽略
 ├── tsconfig.json
 ├── vitest.config.ts
 ├── readme.md
@@ -102,44 +122,47 @@ NodusOS/
 
 ```
 src/
-├── main.ts                       # CLI 入口
-├── common/                       # 共享基础设施
-│   ├── types.ts                  # 核心共享类型（Symbol、Reference、CallGraph 等）
-│   ├── config.ts                 # JSON 配置管理 + 热加载
-│   ├── errors.ts                 # 统一错误类型与降级建议
-│   ├── logger.ts                 # 文件日志系统
+├── main.ts                         # CLI 入口 / REPL 主循环
+├── common/                         # 共享基础设施
+│   ├── types.ts                    # 核心共享类型（Symbol、Reference、CallGraph 等）
+│   ├── config.ts                   # JSON 配置管理 + 热加载
+│   ├── errors.ts                   # 统一错误类型与降级建议
+│   ├── logger.ts                   # 文件日志系统
 │   ├── config.test.ts
 │   ├── errors.test.ts
 │   ├── logger.test.ts
-│   └── native-deps.test.ts
+│   └── native-deps.test.ts         # 原生依赖加载测试（无对应 .ts 实现文件）
 │
-├── shell/                        # 外壳：事件总线 + 模块编排
-│   ├── event-bus.ts              # 事件总线接口 + 标准事件类型
-│   ├── event-bus.impl.ts         # SimpleEventBus 实现
-│   ├── nodus-shell.ts            # NodusShell 主类
+├── shell/                          # 外壳：事件总线 + 模块编排 + 缓存/推荐
+│   ├── event-bus.ts                # 事件总线接口 + 标准事件类型
+│   ├── event-bus.impl.ts           # SimpleEventBus 实现
+│   ├── nodus-shell.ts              # NodusShell 主类，生命周期与事件路由
+│   ├── query-cache.ts              # 查询结果缓存
+│   ├── recommendation-engine.ts    # 查询推荐引擎
 │   ├── event-bus.test.ts
-│   └── nodus-shell.test.ts
+│   ├── nodus-shell.test.ts
+│   ├── query-cache.test.ts
+│   └── recommendation-engine.test.ts
 │
-├── context/                      # 上下文管理
+├── context/                        # 上下文追踪 — 项目、文件、光标、历史
 │   ├── context-manager.ts
 │   ├── context-manager.impl.ts
 │   └── context-manager.test.ts
 │
-├── store/                        # 数据持久化（SQLite）
-│   ├── knowledge-store.ts        # 存储层接口
-│   ├── knowledge-store.impl.ts   # SqliteKnowledgeStore 实现
-│   ├── migrations.ts             # 数据库迁移系统
+├── store/                          # 数据持久化（SQLite + 迁移）
+│   ├── knowledge-store.ts          # 存储层接口
+│   ├── knowledge-store.impl.ts     # SqliteKnowledgeStore 实现
+│   ├── migrations.ts               # 数据库迁移系统
 │   ├── knowledge-store.test.ts
 │   └── migrations.test.ts
 │
-├── code-intel/                   # 语义索引核心
-│   ├── code-intelligence.ts      # 主接口与查询结果类型
-│   ├── code-intelligence.impl.ts # CodeIntelligenceImpl 实现
-│   ├── code-analytics.ts         # 代码库统计/分析接口
-│   ├── code-analytics.impl.ts    # CodeAnalyticsImpl 实现
-│   ├── language-parser.ts        # 语言解析器抽象
-│   ├── reference-resolver.ts     # 跨文件引用解析
-│   ├── module-resolver.ts        # 模块路径解析（tsconfig paths / index re-export）
+├── code-intel/                     # 语义索引核心
+│   ├── code-intelligence.ts        # 主接口与查询结果类型
+│   ├── code-intelligence.impl.ts   # CodeIntelligenceImpl 实现
+│   ├── code-analytics.ts           # 代码库统计/分析接口
+│   ├── code-analytics.impl.ts      # CodeAnalyticsImpl 实现
+│   ├── reference-resolver.ts       # 跨文件引用解析
+│   ├── module-resolver.ts          # 模块路径解析（tsconfig paths / index re-export）
 │   ├── code-intelligence.test.ts
 │   ├── code-intelligence.integration.test.ts
 │   ├── code-analytics.test.ts
@@ -147,41 +170,72 @@ src/
 │   ├── reference-resolver.test.ts
 │   ├── module-resolver.test.ts
 │   └── parsers/
+│       ├── plugin-system.ts        # 语言解析器插件注册表
+│       ├── plugin-system.test.ts
 │       ├── typescript-parser.ts
 │       ├── python-parser.ts
 │       └── utils.ts
 │
-├── env-mgr/                      # 环境检测与安装
+├── code-gen/                       # AI 代码生成与重构（diff/refactor）
+│   ├── code-generator.ts
+│   ├── code-generator.impl.ts
+│   └── code-generator.test.ts
+│
+├── code-review/                    # 代码评审助手
+│   ├── code-reviewer.ts
+│   ├── code-reviewer.impl.ts
+│   └── code-reviewer.test.ts
+│
+├── debug/                          # 跨域调试（日志+代码关联）
+│   ├── cross-domain-debugger.ts
+│   ├── cross-domain-debugger.impl.ts
+│   └── cross-domain-debugger.test.ts
+│
+├── collab/                         # 团队协作（索引共享 + 注释）
+│   ├── team-collaboration.ts
+│   ├── team-collaboration.impl.ts
+│   └── team-collaboration.test.ts
+│
+├── sync/                           # 多设备同步
+│   ├── device-sync.ts
+│   ├── device-sync.impl.ts
+│   └── device-sync.test.ts
+│
+├── env-mgr/                        # 环境管理 — 项目/运行时/依赖/外部服务检测
 │   ├── environment-manager.ts
 │   ├── environment-manager.impl.ts
 │   └── environment-manager.test.ts
 │
-├── git-intel/                    # Git 操作封装
+├── git-intel/                      # Git 操作 — log/diff/blame
 │   ├── git-intelligence.ts
 │   ├── git-intelligence.impl.ts
 │   └── git-intelligence.test.ts
 │
-├── file-watcher/                 # 文件监听（增量索引）
+├── file-watcher/                   # 文件监听 — 增量索引
 │   ├── file-watcher.ts
 │   ├── file-watcher.impl.ts
 │   └── file-watcher.test.ts
 │
-├── intent/                       # 意图解析（关键词 + 模式匹配）
-│   ├── intent-engine.ts
-│   ├── intent-engine.impl.ts
-│   └── intent-engine.test.ts
+├── intent/                         # 意图引擎 — NLU 解析
+│   ├── intent-engine.ts            # 接口与类型
+│   ├── intent-engine.impl.ts       # PatternIntentEngine（正则 + 相似度回退）
+│   ├── local-ml-intent-engine.ts   # 本地轻量神经网络意图分类器
+│   ├── intent-engine.test.ts
+│   └── local-ml-intent-engine.test.ts
 │
-├── ui/                           # 结果格式化（终端渲染器）
-│   ├── ui-renderer.ts
-│   ├── terminal-renderer.ts
-│   └── terminal-renderer.test.ts
+├── ui/                             # 结果格式化与 UI 抽象
+│   ├── ui-renderer.ts              # UI 渲染器接口（卡片、呼吸灯、历史等）
+│   ├── terminal-renderer.ts        # 终端渲染实现
+│   ├── code-snippet.ts             # 代码片段与高亮
+│   ├── terminal-renderer.test.ts
+│   └── code-snippet.test.ts
 │
-└── voice/                        # 语音管线（当前为 stub / 系统 TTS）
+└── voice/                          # 语音管线 — 唤醒词 + 录音 + STT + TTS
     ├── voice-pipeline.ts
     ├── voice-pipeline.impl.ts
-    ├── audio-recorder.ts         # 录音接口
-    ├── stt-engine.ts             # 语音转文字接口
-    ├── wake-word-detector.ts     # 唤醒词接口
+    ├── audio-recorder.ts           # 录音接口
+    ├── stt-engine.ts               # 语音转文字接口
+    ├── wake-word-detector.ts       # 唤醒词接口
     └── voice-pipeline.test.ts
 ```
 
@@ -191,15 +245,20 @@ src/
 
 ```
 人机接口层
-  └── 文本输入（main.ts REPL）/ TerminalRenderer / VoicePipeline（stub）
+  └── 文本输入（main.ts REPL）/ TerminalRenderer / VoicePipeline
 
 意图编排层
-  └── IntentEngine / ContextManager / NodusShell
+  └── IntentEngine / ContextManager / NodusShell / QueryCache / RecommendationEngine
 
 能力层
   ├── CodeIntelligence（tree-sitter 解析）
   ├── CodeAnalytics（统计、热点、耦合、死代码等）
-  ├── EnvironmentManager（运行时/依赖）
+  ├── CodeGenerator（代码生成与重构）
+  ├── CodeReviewer（代码评审）
+  ├── CrossDomainDebugger（日志+代码关联）
+  ├── TeamCollaboration（索引共享/注释）
+  ├── DeviceSync（多设备数据同步）
+  ├── EnvironmentManager（运行时/依赖/外部服务）
   ├── GitIntelligence（git CLI 封装）
   └── FileWatcher（fs.watch + 事件总线）
 
@@ -210,7 +269,7 @@ src/
 模块通信方式：
 
 1. **直接调用**（首选）：上层模块导入下层模块的接口并调用方法。
-2. **事件总线**（松耦合）：通过 `SimpleEventBus` 收发 `NodusEvent` 标准事件，主要用于文件变更、索引状态、环境状态、配置变更等。
+2. **事件总线**（松耦合）：通过 `SimpleEventBus` 收发 `NodusEvent` 标准事件，主要用于文件变更、索引状态、环境状态、配置变更、错误降级等。
 3. **禁止**：直接访问其他模块内部数据结构或实现类。
 
 ### 3.4 各模块实现状态（实际）
@@ -220,8 +279,9 @@ src/
 | ContextManager | ✅ | ✅ | ✅ | 完整可用 |
 | KnowledgeStore | ✅ | ✅ | ✅ | SQLite 持久化 + 迁移 |
 | EventBus | ✅ | ✅ | ✅ | 完整可用 |
-| IntentEngine | ✅ | ✅ | ✅ | 关键词模式匹配 |
+| IntentEngine | ✅ | ✅ | ✅ | 主流程为 PatternIntentEngine；LocalMLIntentEngine 已实现但未接入默认流程 |
 | TerminalRenderer | ✅ | ✅ | ✅ | 完整可用 |
+| CodeSnippet | ✅ | ✅ | ✅ | 代码片段与高亮 |
 | EnvironmentManager | ✅ | ✅ | ✅ | 会真实执行 `npm install` 等 |
 | GitIntelligence | ✅ | ✅ | ✅ | 依赖本地 git CLI |
 | FileWatcher | ✅ | ✅ | ✅ | Node.js `fs.watch` |
@@ -229,7 +289,14 @@ src/
 | CodeAnalytics | ✅ | ✅ | ✅ | 统计/热点/耦合/死代码等 |
 | ReferenceResolver | ✅ | ✅ | ✅ | 跨文件引用解析 |
 | ModuleResolver | ✅ | ✅ | ✅ | tsconfig paths / re-export |
-| VoicePipeline | ✅ | ✅ | ✅ | 仅麦克风检测 + 系统 TTS stub |
+| CodeGenerator | ✅ | ✅ | ✅ | 生成 diff，尚未接入 REPL 主流程 |
+| CodeReviewer | ✅ | ✅ | ✅ | 已接入 REPL |
+| CrossDomainDebugger | ✅ | ✅ | ✅ | 已实现，尚未接入 REPL 主流程 |
+| TeamCollaboration | ✅ | ✅ | ✅ | 已实现，尚未接入 REPL 主流程 |
+| DeviceSync | ✅ | ✅ | ✅ | 已实现；REPL `/sync` 已导出 |
+| QueryCache | ✅ | ✅ | ✅ | 5 分钟查询缓存 |
+| RecommendationEngine | ✅ | ✅ | ✅ | 上下文/高频/延续推荐 |
+| VoicePipeline | ✅ | ✅ | ✅ | 能量阈值唤醒 + 系统 TTS；实时 STT 为 stub |
 | NodusShell | ✅ | ✅ | ✅ | 生命周期与模块编排 |
 | ConfigManager | ✅ | ✅ | ✅ | JSON 配置 + 热加载 |
 | Logger | ✅ | ✅ | ✅ | 文件日志 |
@@ -281,12 +348,12 @@ npm run run:pkg
 
 实际运行 `npm test` 的最近一次结果：
 
-- **测试文件**：21 个
-- **总测试数**：223 个
-- **通过**：223 个
+- **测试文件**：31 个
+- **总测试数**：422 个
+- **通过**：422 个
 - **失败**：0 个
 
-> 注意：`readme.md` 中测试数量描述可能与实际不一致；请以上述实测结果为准。原生依赖在新平台上仍可能加载失败，导致相关测试无法运行，需先执行 `npm run rebuild:native`。
+> 原生依赖在新平台上仍可能加载失败，导致相关测试无法运行，需先执行 `npm run rebuild:native`。
 
 ---
 
@@ -361,7 +428,8 @@ src/<module>/
 
 - 共享层：`config`、`errors`、`logger`、`native-deps`
 - 核心能力：`code-intelligence`、`code-analytics`、`reference-resolver`、`module-resolver`、`type-relationship`
-- 编排与基础设施：`shell`、`event-bus`、`context`、`store`（含 migrations）
+- 编排与基础设施：`shell`、`event-bus`、`context`、`store`（含 migrations）、`query-cache`、`recommendation-engine`
+- 扩展能力：`code-gen`、`code-review`、`debug`、`collab`、`sync`
 - 外部集成：`env-mgr`、`git-intel`、`file-watcher`
 - 界面与交互：`ui`、`intent`、`voice`
 
@@ -377,7 +445,7 @@ src/<module>/
 2. 清理并创建 `bundle/` 目录。
 3. 复制 `dist/` 到 `bundle/dist/`。
 4. 生成精简版 `bundle/package.json`（移除 devDependencies 与 scripts）。
-5. 在 `bundle/` 中执行 `npm install --omit=dev` 安装生产依赖。
+5. 在 `bundle/` 中执行 `npm install --omit=dev --no-audit --no-fund` 安装生产依赖。
 6. 生成 Unix / Windows 可执行入口：`bundle/nodus` 与 `bundle/nodus.cmd`。
 
 ### 7.2 运行打包产物
@@ -402,6 +470,7 @@ node bundle/dist/main.js
 
 - `node --version`、`python3 --version` 等运行时检测。
 - `npm install`、`yarn install`、`pnpm install`、`pip install -r requirements.txt`、`poetry install`、`uv sync` 等依赖安装。
+- `docker compose up`、`redis-server`、`pg_ctl start` 等外部服务启动建议/命令。
 - 这些命令在项目根目录下运行，**会修改目标项目的文件系统**（创建 `node_modules` 等）。
 
 ### 8.2 Git 操作
@@ -410,7 +479,13 @@ node bundle/dist/main.js
 
 ### 8.3 数据目录
 
-`src/main.ts` 默认在 `~/.nodus/` 下创建 SQLite 数据库 `nodus.db`，并在 `intent-engine.impl.ts` 中向 `~/.nodus/feedback.jsonl` 追加反馈日志。`FileLogger` 默认写入 `~/.nodus/logs/nodus-YYYY-MM-DD.log`。
+`src/main.ts` 默认在 `~/.nodus/` 下创建：
+
+- SQLite 数据库 `nodus.db`
+- 配置文件 `config.json`
+- 反馈日志 `feedback.jsonl`
+- 日志目录 `logs/nodus-YYYY-MM-DD.log`
+- 本地 ML 意图模型 `ml-intent-model.json`
 
 ### 8.4 语音管线
 
@@ -420,7 +495,7 @@ node bundle/dist/main.js
 - Linux: `espeak`
 - Windows: PowerShell `System.Speech.Synthesis`
 
-实时唤醒词 + STT 尚未实现，当前为接口与基础 TTS stub。
+实时唤醒词 + STT 尚未完全实现，当前为能量阈值触发 + 接口 stub。
 
 ### 8.5 文件监听
 
@@ -430,16 +505,18 @@ node bundle/dist/main.js
 
 - 不要在生产环境直接运行未知项目的 `npm install`。
 - 当前实现没有沙箱；解析器会读取项目内任意源码文件。
+- 多设备同步数据包包含查询历史与项目路径，导出/导入时注意隐私。
 
 ---
 
 ## 9. 已知问题与限制
 
 1. **原生二进制兼容性**：`better-sqlite3` 与 `tree-sitter` 的预编译二进制在某些平台上会加载失败。当前开发环境已通过 `npm run rebuild:native` 解决，但新环境仍需先运行 `npm run check:native` 验证。
-2. **语音交互**：实时唤醒词 + STT 尚未实现，仅保留接口与基础 TTS stub。
+2. **语音交互**：实时唤醒词 + STT 尚未完全实现，仅保留接口与基础 TTS。
 3. **UI**：目前只有终端文本渲染器，没有图形界面。
 4. **代码解析精度**：tree-sitter 解析器已能抽取符号与基本引用，并支持跨文件引用解析、类型关系、模块耦合等，但复杂动态调用、eval、宏等场景仍有局限。
 5. **环境自动安装**：`installRuntime` 实际不会主动下载安装 Node/Python，而是检测现有运行时并打印提示；真正的全自动安装尚未实现。
+6. **部分新能力未接入 REPL**：`CodeGenerator`、`CrossDomainDebugger`、`TeamCollaboration` 已模块实现，但尚未通过自然语言在 REPL 主流程中触发；可通过编程方式调用。
 
 ---
 
@@ -466,3 +543,5 @@ node bundle/dist/main.js
 - 涉及 `execSync` 或外部命令的改动要特别谨慎，避免破坏用户环境。
 - 若你的工作涉及 `tree-sitter` 或 `better-sqlite3` 报错，先运行 `npm run check:native` 确认本地原生二进制可加载再继续。
 - 修改配置相关逻辑时，同步检查 `src/common/config.test.ts`；修改数据库 schema 时，同步更新 `src/store/migrations.ts` 与 `src/store/migrations.test.ts`。
+- 新增语言解析器时，应通过 `src/code-intel/parsers/plugin-system.ts` 注册，并补充对应测试。
+- 修改 `NodusShell` 生命周期或事件路由时，同步检查 `src/shell/nodus-shell.test.ts` 与 `src/main.ts`。

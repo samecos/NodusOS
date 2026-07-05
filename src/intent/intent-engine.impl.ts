@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import type {
   IntentEngine, IntentInput, QueryIntent, IntentEntity, IntentError, Context,
 } from './intent-engine.js';
-import type { IntentType } from '../common/types.js';
+import type { IntentType, SymbolKind } from '../common/types.js';
 
 const CONFIDENCE_THRESHOLD = 0.8;
 const SIMILARITY_DIRECT_THRESHOLD = 0.65;
@@ -76,7 +76,14 @@ export class PatternIntentEngine implements IntentEngine {
     { text: '哪些类继承了 xxx', intentType: 'type_relationships', entityHint: 'symbol' },
     { text: '哪些类型使用了 xxx', intentType: 'type_relationships', entityHint: 'symbol' },
     { text: 'who implements xxx', intentType: 'type_relationships', entityHint: 'symbol' },
-    { text: 'subclasses of xxx', intentType: 'type_relationships', entityHint: 'symbol' },
+    // switch_project
+    { text: '打开xxx项目', intentType: 'switch_project', entityHint: 'symbol' },
+    { text: '切换到xxx', intentType: 'switch_project', entityHint: 'symbol' },
+    { text: 'switch to xxx project', intentType: 'switch_project', entityHint: 'symbol' },
+    { text: 'open xxx project', intentType: 'switch_project', entityHint: 'symbol' },
+    // list_projects
+    { text: '列出所有项目', intentType: 'list_projects' },
+    { text: 'show all projects', intentType: 'list_projects' },
   ];
 
   /** 从 feedback.jsonl 学习到的例句列表 */
@@ -176,8 +183,40 @@ export class PatternIntentEngine implements IntentEngine {
   }
 
   parse(input: IntentInput, context: Context): QueryIntent | IntentError {
-    const text = input.text.trim();
-    if (!text) return { kind: 'empty_input' };
+    let text = input.text.trim();
+
+    // 5. 空查询 + 有选中代码 → 推断最合适意图
+    if (!text) {
+      if (context.selected_code) {
+        const inferred = this.inferIntentFromEmptyQuery(context);
+        if (inferred) {
+          const symName = this.extractSymbolName(context.selected_code) ?? context.cursor_symbol;
+          if (symName) {
+            return this.makeIntent(text, inferred.intentType, { symbolName: symName }, 0.78, context, { inferredReason: inferred.reason });
+          }
+        }
+      }
+      return { kind: 'empty_input' };
+    }
+
+    // 4. 查询含代词 → 替换为上下文符号名，然后重新匹配
+    const symName = context.cursor_symbol ?? this.extractSymbolName(context.selected_code ?? '');
+    if (symName && this.hasPronoun(text)) {
+      const processedText = this.replacePronoun(text, symName);
+      if (processedText !== text) {
+        const lowerProcessed = processedText.toLowerCase();
+        const reMatched = this.matchIntent(lowerProcessed, processedText, context);
+        if (reMatched && reMatched.confidence >= CONFIDENCE_THRESHOLD) {
+          return this.enrichWithContext(reMatched, context, { replacedPronoun: true, originalSymbol: symName });
+        }
+        const reSimilar = this.matchBySimilarity(processedText, context);
+        if (reSimilar && reSimilar.confidence >= SIMILARITY_DIRECT_THRESHOLD) {
+          return this.enrichWithContext(reSimilar, context, { replacedPronoun: true, originalSymbol: symName });
+        }
+        // 替换后仍无法精确匹配，但文本已被更新，继续后续流程
+        text = processedText;
+      }
+    }
 
     const lower = text.toLowerCase();
 
@@ -187,28 +226,47 @@ export class PatternIntentEngine implements IntentEngine {
       if (matched.confidence < CONFIDENCE_THRESHOLD) {
         return {
           kind: 'ambiguous',
-          candidates: matched.candidates ?? [matched],
+          candidates: matched.candidates ?? [this.enrichWithContext(matched, context, {})],
         };
       }
-      return matched;
+      return this.enrichWithContext(matched, context, {});
     }
 
     // 2. 相似度回退匹配（容忍同义改写、错别字、语序变化）
     const similar = this.matchBySimilarity(text, context);
     if (similar) {
       if (similar.confidence >= SIMILARITY_DIRECT_THRESHOLD) {
-        return similar;
+        return this.enrichWithContext(similar, context, {});
       }
       if (similar.confidence >= SIMILARITY_AMBIGUOUS_THRESHOLD) {
-        return { kind: 'ambiguous', candidates: [similar] };
+        return { kind: 'ambiguous', candidates: [this.enrichWithContext(similar, context, {})] };
       }
     }
 
     // 3. 上下文自动补全
     if (context.cursor_symbol || context.selected_code) {
-      const symName = context.cursor_symbol ?? this.extractSymbolName(context.selected_code ?? '');
-      if (symName) {
-        return this.makeIntent(text, 'find_definition', { symbolName: symName }, 0.75);
+      const fallbackSymName = context.cursor_symbol ?? this.extractSymbolName(context.selected_code ?? '');
+      if (fallbackSymName) {
+        // 2) 选中代码块 → 推荐 impact_analysis
+        if (context.selected_code) {
+          const selectedSymName = this.extractSymbolName(context.selected_code) ?? fallbackSymName;
+          return this.makeIntent(text, 'impact_analysis', { symbolName: selectedSymName }, 0.78, context, { hasSelection: true });
+        }
+
+        // 1) 光标在函数/方法内 → 推荐 call_graph
+        if (context.cursor_symbol && context.cursor_symbol_kind &&
+            (context.cursor_symbol_kind === 'function' || context.cursor_symbol_kind === 'method')) {
+          return this.makeIntent(text, 'call_graph', { symbolName: fallbackSymName }, 0.78, context, { cursorKind: context.cursor_symbol_kind });
+        }
+
+        // 3) 光标在类/接口定义 → 推荐 type_relationships
+        if (context.cursor_symbol && context.cursor_symbol_kind &&
+            (context.cursor_symbol_kind === 'class' || context.cursor_symbol_kind === 'interface')) {
+          return this.makeIntent(text, 'type_relationships', { symbolName: fallbackSymName }, 0.78, context, { cursorKind: context.cursor_symbol_kind });
+        }
+
+        // 默认：find_definition
+        return this.makeIntent(text, 'find_definition', { symbolName: fallbackSymName }, 0.75, context, {});
       }
     }
 
@@ -312,7 +370,7 @@ export class PatternIntentEngine implements IntentEngine {
       // 列表查询（先于 symbol_overview，避免“列出所有导出函数”被误判为概览）
       {
         patterns: [
-          /(?:列出|list|show)\s*(?:所有\s*)?(?:导出\s*|exported\s*)?(?:所有\s*)?(?:的\s*)?(?:符号|函数|类|接口|方法|symbols|functions|classes|interfaces|methods)?/i,
+          /(?:列出|list|show)\s*(?:所有\s*)?(?:导出\s*|exported\s*)?(?:所有\s*)?(?:的\s*)?(?:符号|函数|类|接口|方法|symbols|functions|classes|interfaces|methods)(?!\s*项目)/i,
           /(?:哪些|what)\s+(?:符号|函数|类|接口|symbols|functions|classes|interfaces)\s*(?:在|in)\s*(.+)/i,
         ],
         intentType: 'list_symbols',
@@ -362,7 +420,21 @@ export class PatternIntentEngine implements IntentEngine {
           subType: this.extractAnalyticsSubType(text),
         }),
       },
-      // 符号概览
+      // 代码评审
+      {
+        patterns: [
+          /(?:代码|code)\s*(?:评审|review|审查|检查)/i,
+          /(?:评审|review)\s+(?:commit|提交|changes?|diff|代码|code|pr|pull\s*request)/i,
+          /review\s*(?:the\s*)?(?:code|diff|changes?|pr)/i,
+          /(?:检查|查看|review)\s*(?:变更|改动|diff|changes?)/i,
+          /(?:pr|pull\s+request)\s*(?:评审|review)/i,
+          /(?:commit|提交)\s+(?:评审|review)/i,
+        ],
+        intentType: 'code_review',
+        extractEntities: (_, text) => ({
+          commitHash: this.extractCommitHash(text) ?? undefined,
+        }),
+      },
       {
         patterns: [
           /(.+?)(?:里有哪些|有哪些|里面有什么|what'?s in|symbols in|contains|导出)/i,
@@ -373,6 +445,26 @@ export class PatternIntentEngine implements IntentEngine {
           filePath: this.extractFilePath(text) ?? ctx.active_file ?? undefined,
         }),
       },
+      // 切换项目
+      {
+        patterns: [
+          /(?:打开|切换到|切换|切到|open|switch\s*to)\s*(.+?)(?:项目|project)?/i,
+          /(?:change\s*to|goto|go\s*to)\s*(.+?)(?:\s+project)?/i,
+        ],
+        intentType: 'switch_project',
+        extractEntities: (_, text, _ctx) => ({
+          projectPath: this.extractProjectPath(text) ?? undefined,
+        }),
+      },
+      // 列出所有项目
+      {
+        patterns: [
+          /(?:列出|显示|show|list)\s*(?:所有|全部)?\s*(?:已打开)?\s*(?:项目|projects?)/i,
+          /(?:所有|全部)\s*(?:项目|projects?)\s*(?:列表|list)?/i,
+        ],
+        intentType: 'list_projects',
+        extractEntities: () => ({}),
+      },
     ];
 
     for (const rule of rules) {
@@ -382,13 +474,13 @@ export class PatternIntentEngine implements IntentEngine {
           const entities = rule.extractEntities(match, rawText, ctx);
           // 类型关系必须能提取到符号名，否则继续匹配后续规则（避免误吞 analytics 等聚合意图）
           if (rule.intentType === 'type_relationships' && !entities.symbolName) continue;
-          // 聚合类意图（list_symbols / stats / analytics）模式本身足够明确，直接给高置信度
-          const aggregateIntent = rule.intentType === 'list_symbols' || rule.intentType === 'stats' || rule.intentType === 'analytics';
-          const hasEntity = entities.symbolName || entities.filePath || entities.moduleName ||
+          // 聚合类意图（list_symbols / stats / analytics / list_projects / code_review）模式本身足够明确，直接给高置信度
+          const aggregateIntent = rule.intentType === 'list_symbols' || rule.intentType === 'stats' || rule.intentType === 'analytics' || rule.intentType === 'list_projects' || rule.intentType === 'code_review';
+          const hasEntity = entities.symbolName || entities.filePath || entities.moduleName || entities.projectPath || entities.commitHash ||
                             entities.subType || (entities.filter && Object.keys(entities.filter).length > 0);
           const confidence = aggregateIntent || hasEntity ? 0.92 : 0.65;
 
-          return this.makeIntent(rawText, rule.intentType, entities, confidence);
+          return this.makeIntent(rawText, rule.intentType, entities, confidence, ctx);
         }
       }
     }
@@ -398,8 +490,72 @@ export class PatternIntentEngine implements IntentEngine {
 
   private makeIntent(
     rawText: string, intentType: IntentType, entities: IntentEntity, confidence: number,
+    ctx?: Context, implicitParams?: Record<string, unknown>,
   ): QueryIntent {
-    return { rawText, intentType, confidence, entities };
+    const result: QueryIntent = { rawText, intentType, confidence, entities };
+    if (ctx) {
+      result.context = {
+        activeFile: ctx.active_file ?? undefined,
+        cursorSymbol: ctx.cursor_symbol ?? undefined,
+        selectedCode: ctx.selected_code ?? undefined,
+        implicitParams,
+      };
+    }
+    return result;
+  }
+
+  private enrichWithContext(intent: QueryIntent, ctx: Context, implicitParams: Record<string, unknown>): QueryIntent {
+    return {
+      ...intent,
+      context: {
+        activeFile: ctx.active_file ?? undefined,
+        cursorSymbol: ctx.cursor_symbol ?? undefined,
+        selectedCode: ctx.selected_code ?? undefined,
+        implicitParams,
+      },
+    };
+  }
+
+  // ---- 上下文辅助方法 ----
+
+  private hasPronoun(text: string): boolean {
+    return /这个|当前|此|it|this|that/i.test(text);
+  }
+
+  private replacePronoun(text: string, symbolName: string): string {
+    return text
+      .replace(/这个(函数|类|方法|接口|变量|模块)?/g, symbolName)
+      .replace(/当前(函数|类|方法|接口|变量|模块)?/g, symbolName)
+      .replace(/此(函数|类|方法|接口|变量|模块)?/g, symbolName)
+      .replace(/\bit\b/gi, symbolName)
+      .replace(/\bthis\b/gi, symbolName)
+      .replace(/\bthat\b/gi, symbolName);
+  }
+
+  private inferIntentFromEmptyQuery(context: Context): { intentType: IntentType; reason: string } | null {
+    const selectedCode = context.selected_code ?? '';
+    const cursorKind = context.cursor_symbol_kind;
+
+    if (cursorKind === 'function' || cursorKind === 'method') {
+      return { intentType: 'call_graph', reason: 'cursor_in_function' };
+    }
+    if (cursorKind === 'class' || cursorKind === 'interface') {
+      return { intentType: 'type_relationships', reason: 'cursor_in_type' };
+    }
+
+    // 根据选中代码内容推断
+    if (/class\s+\w+|interface\s+\w+/i.test(selectedCode)) {
+      return { intentType: 'type_relationships', reason: 'selection_contains_type_definition' };
+    }
+    if (/function\s+\w+\s*\(|const\s+\w+\s*=\s*\(|=>|def\s+\w+\s*\(/i.test(selectedCode)) {
+      return { intentType: 'call_graph', reason: 'selection_contains_function_definition' };
+    }
+
+    if (selectedCode.length > 30) {
+      return { intentType: 'impact_analysis', reason: 'selection_is_multi_line_block' };
+    }
+
+    return { intentType: 'find_definition', reason: 'default_for_selection' };
   }
 
   // ---- 相似度回退匹配 ----
@@ -425,7 +581,7 @@ export class PatternIntentEngine implements IntentEngine {
     if (!best || best.score < SIMILARITY_AMBIGUOUS_THRESHOLD) return null;
 
     const entities = this.extractEntitiesForHint(rawText, ctx, best.entityHint);
-    return this.makeIntent(rawText, best.intentType, entities, best.score);
+    return this.makeIntent(rawText, best.intentType, entities, best.score, ctx);
   }
 
   private tokenize(text: string): string[] {
@@ -580,13 +736,29 @@ export class PatternIntentEngine implements IntentEngine {
     return undefined;
   }
 
+  private extractProjectPath(text: string): string | null {
+    // 尝试匹配 "打开 /path/to/project" 或 "切换到 some-project"
+    const match = text.match(/(?:打开|切换到|切换|open|switch\s*to)\s+([\/\w._-]+)/i);
+    if (match) return match[1];
+    // 尝试匹配引号包裹的路径
+    const quotedMatch = text.match(/['"]([\/\w._-]+)['"]/);
+    return quotedMatch?.[1] ?? null;
+  }
+
+  private extractCommitHash(text: string): string | null {
+    // 匹配 7 位以上的十六进制 commit hash（通常 7-40 位）
+    const match = text.match(/\b([0-9a-f]{7,40})\b/i);
+    return match?.[1] ?? null;
+  }
+
   // ---- 学习闭环辅助 ----
 
   private isValidIntentType(type: string): boolean {
     const valid: IntentType[] = [
       'find_definition', 'find_references', 'call_graph', 'impact_analysis',
       'change_history', 'symbol_overview', 'list_symbols', 'stats',
-      'analytics', 'type_relationships',
+      'analytics', 'type_relationships', 'code_review',
+      'switch_project', 'list_projects',
     ];
     return (valid as string[]).includes(type);
   }

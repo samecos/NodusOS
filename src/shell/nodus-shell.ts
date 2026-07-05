@@ -4,10 +4,13 @@
 // ============================================================
 
 import { NodusError, EnvError } from '../common/errors.js';
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { SimpleEventBus } from './event-bus.impl.js';
 import { SqliteKnowledgeStore } from '../store/knowledge-store.impl.js';
 import { DefaultContextManager } from '../context/context-manager.impl.js';
 import { CodeIntelligenceImpl } from '../code-intel/code-intelligence.impl.js';
+import { DefaultCodeReviewer } from '../code-review/code-reviewer.impl.js';
 import { EnvironmentManagerImpl } from '../env-mgr/environment-manager.impl.js';
 import { GitIntelligenceImpl } from '../git-intel/git-intelligence.impl.js';
 import { FileWatcherImpl } from '../file-watcher/file-watcher.impl.js';
@@ -16,7 +19,9 @@ import { SystemVoicePipeline } from '../voice/voice-pipeline.impl.js';
 import { TerminalRenderer } from '../ui/terminal-renderer.js';
 import { QueryCache } from './query-cache.js';
 import { RecommendationEngine } from './recommendation-engine.js';
+import { DefaultDeviceSync } from '../sync/device-sync.impl.js';
 import type { EventBus } from './event-bus.js';
+import type { DeviceSync } from '../sync/device-sync.js';
 import { createErrorCard, type UIRenderer, type BreathLightState, type HistoryItem, type RecommendationItem } from '../ui/ui-renderer.js';
 import type { ContextManager } from '../context/context-manager.js';
 import type { CodeIntelligence } from '../code-intel/code-intelligence.js';
@@ -27,6 +32,7 @@ import type { IntentEngine, QueryIntent } from '../intent/intent-engine.js';
 import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { VoicePipeline } from '../voice/voice-pipeline.js';
 import type { ConfigManager, NodusConfig } from '../common/config.js';
+import { basename } from 'node:path';
 
 export { type NodusConfig } from '../common/config.js';
 
@@ -41,6 +47,7 @@ export class NodusShell {
   readonly intentEngine: IntentEngine;
   readonly voicePipeline: VoicePipeline;
   readonly uiRenderer: UIRenderer;
+  readonly deviceSync: DeviceSync;
 
   private configManager: ConfigManager;
   private config: NodusConfig;
@@ -70,6 +77,7 @@ export class NodusShell {
     this.codeIntel = new CodeIntelligenceImpl(this.store);
     this.gitIntel = new GitIntelligenceImpl();
     this.codeIntel.setGitIntel(this.gitIntel);
+    this.codeIntel.setCodeReviewer(new DefaultCodeReviewer());
     this.envMgr = new EnvironmentManagerImpl();
     this.fileWatcher = new FileWatcherImpl(this.eventBus);
 
@@ -77,10 +85,11 @@ export class NodusShell {
     this.intentEngine = new PatternIntentEngine();
     this.voicePipeline = new SystemVoicePipeline(this.eventBus);
 
-    // Phase 4: 界面 + 缓存
+    // Phase 4: 界面 + 缓存 + 同步
     this.uiRenderer = new TerminalRenderer();
     this.queryCache = new QueryCache();
     this.recommendationEngine = new RecommendationEngine(this.store, this.contextMgr);
+    this.deviceSync = new DefaultDeviceSync(this.store);
 
     // 注册模块到 registry
     this.modules.set('store', this.store);
@@ -93,6 +102,7 @@ export class NodusShell {
     this.modules.set('intent', this.intentEngine);
     this.modules.set('voice', this.voicePipeline);
     this.modules.set('ui', this.uiRenderer);
+    this.modules.set('device_sync', this.deviceSync);
     this.modules.set('config_manager', this.configManager);
 
     // 注册事件路由
@@ -208,6 +218,64 @@ export class NodusShell {
     }
   }
 
+  async switchProject(projectPath: string): Promise<void> {
+    console.log(`[Nodus] Switching to project: ${projectPath}`);
+
+    // 1. 保存当前会话状态
+    const ctx = this.contextMgr.snapshot();
+    if (ctx.active_project_root) {
+      this.store.sessionStateUpsert({
+        project_root: ctx.active_project_root,
+        active_file: ctx.active_file,
+        cursor_line: ctx.cursor_line,
+        cursor_col: ctx.cursor_col,
+        cursor_symbol: ctx.cursor_symbol,
+      });
+    }
+
+    // 2. 暂停当前文件监听
+    this.fileWatcher.pause();
+
+    // 3. 将新项目添加到配置列表（如尚未存在）
+    const currentPaths = this.config.projectPaths;
+    if (!currentPaths.includes(projectPath)) {
+      this.configManager.set('projectPaths', [...currentPaths, projectPath]);
+    }
+
+    // 4. 更新上下文为待切换项目
+    this.contextMgr.update({ kind: 'project_changed', root: projectPath });
+
+    // 5. 打开新项目（含索引、文件监听、会话恢复）
+    await this.openProject(projectPath);
+
+    console.log(`[Nodus] Switched to project: ${projectPath}`);
+  }
+
+  listProjects(): Array<{ name: string; path: string; languages: string[]; active: boolean }> {
+    const ctx = this.contextMgr.snapshot();
+    return this.config.projectPaths.map((path) => {
+      const meta = this.store.projectGetFull(path);
+      return {
+        name: meta?.name ?? basename(path),
+        path,
+        languages: meta?.languages ?? [],
+        active: path === ctx.active_project_root,
+      };
+    });
+  }
+
+  private renderProjectList(list: ReturnType<typeof this.listProjects>): string {
+    if (list.length === 0) {
+      return '[Nodus] 当前未打开任何项目';
+    }
+    const lines = ['[Nodus] 已打开的项目：'];
+    for (const p of list) {
+      const marker = p.active ? '●' : '○';
+      lines.push(`  ${marker} ${p.name} (${p.path})${p.languages.length > 0 ? ' [' + p.languages.join(', ') + ']' : ''}`);
+    }
+    return lines.join('\n');
+  }
+
   async handleQuery(text: string): Promise<unknown> {
     this.eventBus.emit({ kind: 'query:received', text });
 
@@ -223,6 +291,20 @@ export class NodusShell {
         return result;
       }
 
+      // 项目切换意图拦截
+      if (result.intentType === 'switch_project') {
+        const targetPath = result.entities.projectPath;
+        if (!targetPath) {
+          return { kind: 'error', message: '未指定项目路径' };
+        }
+        await this.switchProject(targetPath);
+        return { kind: 'switch_project', projectPath: targetPath };
+      }
+
+      if (result.intentType === 'list_projects') {
+        return this.listProjects();
+      }
+
       this.contextMgr.recordQuery(text, result.intentType);
       const queryResult = await this.codeIntel.query(result);
       this.eventBus.emit({ kind: 'query:result', result: queryResult });
@@ -235,6 +317,13 @@ export class NodusShell {
         latency_ms: 0,
         result_count: this.countResults(queryResult),
         timestamp: new Date().toISOString(),
+      });
+
+      // 自动写入标注飞轮
+      this.store.annotationRecord({
+        input_text: text,
+        intent_type: result.intentType,
+        output_data: JSON.stringify(queryResult),
       });
 
       return queryResult;
@@ -273,6 +362,30 @@ export class NodusShell {
       }
 
       const intent = result as QueryIntent;
+
+      // 项目切换意图拦截
+      if (intent.intentType === 'switch_project') {
+        const targetPath = intent.entities.projectPath;
+        if (!targetPath) {
+          this.setBreathLight('idle');
+          return this.uiRenderer.renderCard(createErrorCard(
+            this.uiRenderer,
+            new NodusError('SHELL_QUERY_FAILED', '未指定项目路径'),
+            'shell',
+            '切换项目失败',
+          ));
+        }
+        await this.switchProject(targetPath);
+        this.setBreathLight('idle');
+        return `[Nodus] 已切换到项目: ${targetPath}`;
+      }
+
+      if (intent.intentType === 'list_projects') {
+        const list = this.listProjects();
+        this.setBreathLight('idle');
+        return this.renderProjectList(list);
+      }
+
       this.contextMgr.recordQuery(text, intent.intentType);
       const queryResult = await this.codeIntel.query(intent);
       this.eventBus.emit({ kind: 'query:result', result: queryResult });
@@ -285,6 +398,13 @@ export class NodusShell {
         latency_ms: 0,
         result_count: this.countResults(queryResult),
         timestamp: new Date().toISOString(),
+      });
+
+      // 自动写入标注飞轮
+      this.store.annotationRecord({
+        input_text: text,
+        intent_type: intent.intentType,
+        output_data: JSON.stringify(queryResult),
       });
 
       const output = this.uiRenderer.render(queryResult);
@@ -382,6 +502,42 @@ export class NodusShell {
   /** 返回已学习例句数量 */
   getLearnedCount(): number {
     return this.intentEngine.getLearnedCount();
+  }
+
+  /** 获取项目列表的格式化字符串 */
+  getProjectList(): string {
+    return this.renderProjectList(this.listProjects());
+  }
+
+  /** 提交手动反馈，保存到 feedback.jsonl（不参与学习闭环，仅作记录） */
+  recordManualFeedback(text: string): void {
+    try {
+      const home = process.env.HOME ?? process.env.USERPROFILE ?? '.';
+      const dir = join(home, '.nodus');
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      const entry = {
+        timestamp: new Date().toISOString(),
+        input_text: text,
+        input_source: 'manual_feedback',
+        parsed_intent: null,
+        parsed_confidence: null,
+        actual_intent: 'feedback',
+        actual_entities: {},
+      };
+      appendFileSync(join(dir, 'feedback.jsonl'), JSON.stringify(entry) + '\n');
+    } catch {
+      // 静默失败 — 反馈记录不影响主流程
+    }
+  }
+
+  /** 导出多设备同步数据 */
+  exportSyncData(): import('../common/types.js').SyncData {
+    return this.deviceSync.exportSyncData();
+  }
+
+  /** 导入多设备同步数据 */
+  importSyncData(data: import('../common/types.js').SyncData): import('../sync/device-sync.js').SyncResult {
+    return this.deviceSync.importSyncData(data);
   }
 
   private countResults(result: QueryResult): number {

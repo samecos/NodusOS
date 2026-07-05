@@ -9,7 +9,7 @@ import type {
   CallGraph, CallDirection,
   ProjectMeta, QueryHistoryEntry,
   FileIndexState, RuntimeRequirement, Dependency,
-  SessionState,
+  SessionState, AnnotationEntry,
 } from '../common/types.js';
 
 export interface KnowledgeStore {
@@ -60,6 +60,8 @@ export interface KnowledgeStore {
   prefGet(key: string): unknown;
   prefSet(key: string, value: unknown): void;
   prefDelete(key: string): void;
+  /** 列出所有偏好键值对 */
+  prefList(): Record<string, unknown>;
 
   // ---- 查询历史 ----
   historyRecord(entry: QueryHistoryEntry): void;
@@ -73,6 +75,13 @@ export interface KnowledgeStore {
   sessionStateGet(projectRoot: string): SessionState | undefined;
   sessionStateUpsert(state: SessionState): void;
   sessionStateRemove(projectRoot: string): void;
+
+  // ---- 人工标注 ----
+  annotationRecord(entry: Omit<AnnotationEntry, 'id'>): number;
+  annotationGet(id: number): AnnotationEntry | undefined;
+  annotationList(limit?: number): AnnotationEntry[];
+  annotationUpdate(id: number, updates: Partial<Omit<AnnotationEntry, 'id' | 'created_at'>>): boolean;
+  annotationDelete(id: number): boolean;
 
   // ---- 生命周期 ----
   close(): void;

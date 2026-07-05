@@ -96,6 +96,10 @@ export class GitIntelligenceImpl implements GitIntelligence {
     });
   }
 
+  public parseDiffOutput(output: string): DiffData {
+    return this.parseDiff(output);
+  }
+
   private parseDiff(output: string): DiffData {
     const files: DiffData['files'] = [];
     let stats = { filesChanged: 0, insertions: 0, deletions: 0 };
@@ -170,4 +174,8 @@ export class GitIntelligenceImpl implements GitIntelligence {
       lineContent: '',
     };
   }
+}
+
+export function parseDiffOutput(output: string): DiffData {
+  return new GitIntelligenceImpl().parseDiffOutput(output);
 }

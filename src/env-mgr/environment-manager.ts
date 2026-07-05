@@ -25,6 +25,22 @@ export interface DepInstallReport {
   warnings: string[];
 }
 
+/** 外部服务类型 */
+export type ExternalServiceType = 'postgresql' | 'mysql' | 'redis' | 'docker' | 'mongodb';
+
+/** 外部服务状态 */
+export type ExternalServiceStatus =
+  | { kind: 'not_detected' }
+  | { kind: 'config_found'; config_source: string }
+  | { kind: 'running'; port: number; version?: string }
+  | { kind: 'missing'; config_source: string; hint: string };
+
+/** 外部服务信息 */
+export interface ExternalService {
+  type: ExternalServiceType;
+  status: ExternalServiceStatus;
+}
+
 export interface EnvironmentManager {
   /** 检测项目类型 */
   detectProject(path: string): Promise<ProjectMeta>;
@@ -43,4 +59,13 @@ export interface EnvironmentManager {
 
   /** 检测包管理器 */
   detectPackageManager(path: string): PackageManager | null;
+
+  /** 检测外部服务（数据库 / Redis / Docker / MongoDB） */
+  detectExternalServices(projectPath: string): Promise<ExternalService[]>;
+
+  /** 检查指定服务状态 */
+  checkServiceStatus(type: ExternalServiceType, port?: number): Promise<ExternalServiceStatus>;
+
+  /** 获取启动建议（返回启动命令或说明） */
+  startService(service: ExternalService): Promise<string>;
 }

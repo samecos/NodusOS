@@ -10,6 +10,7 @@ import { execSync } from 'node:child_process';
 import { SqliteKnowledgeStore } from '../store/knowledge-store.impl.js';
 import { CodeIntelligenceImpl } from './code-intelligence.impl.js';
 import { GitIntelligenceImpl } from '../git-intel/git-intelligence.impl.js';
+import { DefaultCodeReviewer } from '../code-review/code-reviewer.impl.js';
 import type { CodeIntelligence } from './code-intelligence.js';
 import type { KnowledgeStore } from '../store/knowledge-store.js';
 
@@ -145,6 +146,22 @@ describe('CodeIntelligence Integration', () => {
       entities: {},
     });
     expect(result.kind).toBe('stats_report');
+  });
+
+  it('TC-IT-CI-KS-018: should route code_review intent', async () => {
+    ci.setGitIntel(new GitIntelligenceImpl());
+    ci.setCodeReviewer(new DefaultCodeReviewer());
+    const result = await ci.query({
+      intentType: 'code_review',
+      confidence: 0.95,
+      rawText: 'review commit 093a706',
+      entities: { commitHash: '093a706' },
+    });
+    expect(result.kind).toBe('review_report');
+    if (result.kind === 'review_report') {
+      expect(result.report.summary).toBeDefined();
+      expect(['low', 'medium', 'high']).toContain(result.report.overallRisk);
+    }
   });
 
   // TC-IT-CI-KS-005: impactAnalysis 应返回直接调用方

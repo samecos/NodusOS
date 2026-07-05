@@ -1,6 +1,6 @@
 // ============================================================
 // EnvironmentManager 单元测试
-// TC-UT-EM-001 ~ TC-UT-EM-009
+// TC-UT-EM-001 ~ TC-UT-EM-015
 // ============================================================
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -131,5 +131,110 @@ requires-python = ">=3.12"
     } finally {
       spy.mockRestore();
     }
+  });
+
+  // ---- R3.5 外部服务检测 ----
+
+  // TC-UT-EM-013: 从 .env 文件检测 PostgreSQL
+  it('TC-UT-EM-013: should detect PostgreSQL from .env file', async () => {
+    writeFileSync(join(testDir, '.env'), 'DATABASE_URL=postgresql://user:pass@localhost:5432/db\n');
+
+    const services = await em.detectExternalServices(testDir);
+    const pg = services.find(s => s.type === 'postgresql');
+    expect(pg).toBeDefined();
+    // 测试环境可能已有 PostgreSQL 运行，因此接受 config_found 或 running
+    expect(['config_found', 'running']).toContain(pg!.status.kind);
+    if (pg!.status.kind === 'config_found') {
+      expect((pg!.status as { config_source?: string }).config_source).toBe('.env');
+    }
+  });
+
+  // TC-UT-EM-014: 从 docker-compose.yml 检测 Redis + MySQL
+  it('TC-UT-EM-014: should detect Redis and MySQL from docker-compose.yml', async () => {
+    writeFileSync(join(testDir, 'docker-compose.yml'), `
+version: "3.8"
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+  mysql:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+`);
+
+    const services = await em.detectExternalServices(testDir);
+    const redis = services.find(s => s.type === 'redis');
+    const mysql = services.find(s => s.type === 'mysql');
+    expect(redis).toBeDefined();
+    expect(['config_found', 'running', 'missing']).toContain(redis!.status.kind);
+    expect(mysql).toBeDefined();
+    expect(['config_found', 'running', 'missing']).toContain(mysql!.status.kind);
+  });
+
+  // TC-UT-EM-015: 从 redis.conf 检测 Redis
+  it('TC-UT-EM-015: should detect Redis from redis.conf', async () => {
+    writeFileSync(join(testDir, 'redis.conf'), 'port 6379\nbind 127.0.0.1\n');
+
+    const services = await em.detectExternalServices(testDir);
+    const redis = services.find(s => s.type === 'redis');
+    expect(redis).toBeDefined();
+    expect(['config_found', 'running']).toContain(redis!.status.kind);
+  });
+
+  // TC-UT-EM-016: 从 package.json 依赖推断 MongoDB
+  it('TC-UT-EM-016: should infer MongoDB from package.json dependency', async () => {
+    writeFileSync(join(testDir, 'package.json'), JSON.stringify({
+      name: 'mongo-app',
+      dependencies: { mongodb: '^6.0' },
+    }));
+
+    const services = await em.detectExternalServices(testDir);
+    const mongo = services.find(s => s.type === 'mongodb');
+    expect(mongo).toBeDefined();
+    expect(mongo!.status.kind).toBe('not_detected');
+  });
+
+  // TC-UT-EM-017: 合并重复服务优先级测试
+  it('TC-UT-EM-017: should merge duplicate services with correct priority', async () => {
+    writeFileSync(join(testDir, '.env'), 'DATABASE_URL=postgresql://localhost:5432/db\n');
+    writeFileSync(join(testDir, 'docker-compose.yml'), `
+services:
+  postgres:
+    image: postgres:15
+    ports:
+      - "5432:5432"
+`);
+
+    const services = await em.detectExternalServices(testDir);
+    const pg = services.filter(s => s.type === 'postgresql');
+    expect(pg.length).toBe(1);
+    // config_found 优先级高于 not_detected；若环境已运行则为 running
+    expect(['config_found', 'running']).toContain(pg[0].status.kind);
+  });
+
+  // TC-UT-EM-018: startService 返回正确启动建议
+  it('TC-UT-EM-018: should return start command for docker', async () => {
+    const cmd = await em.startService({ type: 'docker', status: { kind: 'missing', config_source: 'docker-compose.yml', hint: '' } });
+    expect(cmd).toContain('docker compose up');
+  });
+
+  it('should return start command for redis', async () => {
+    const cmd = await em.startService({ type: 'redis', status: { kind: 'missing', config_source: 'redis.conf', hint: '' } });
+    expect(cmd).toContain('redis-server');
+  });
+
+  it('should return start command for postgresql', async () => {
+    const cmd = await em.startService({ type: 'postgresql', status: { kind: 'missing', config_source: '.env', hint: '' } });
+    expect(cmd).toContain('pg_ctl');
+  });
+
+  // TC-UT-EM-019: checkServiceStatus 返回 not_detected（端口无监听）
+  it('TC-UT-EM-019: should return not_detected for unavailable service', async () => {
+    const status = await em.checkServiceStatus('redis', 65535);
+    expect(status.kind).toBe('not_detected');
   });
 });

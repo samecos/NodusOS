@@ -8,6 +8,7 @@ import type { IntentError, QueryIntent } from '../intent/intent-engine.js';
 import type { Symbol, Reference, ReferenceKind, CallGraph, CallGraphNode, ProjectMeta, Language } from '../common/types.js';
 import type { ImpactReport, ChangeRecord, TypeRelationship } from '../code-intel/code-intelligence.js';
 import type { SymbolMetric, ModuleCoupling, CallChain, TodoComment } from '../code-intel/code-analytics.js';
+import type { ReviewReport, ReviewComment } from '../code-review/code-reviewer.js';
 import { type NodusError, getDegradationSuggestion } from '../common/errors.js';
 import { readFileSnippet, renderSnippet } from './code-snippet.js';
 
@@ -56,6 +57,8 @@ export class TerminalRenderer implements UIRenderer {
         return this.renderChangeHeat(result.files);
       case 'type_relationship_list':
         return this.renderTypeRelationships(result.root, result.relationships);
+      case 'review_report':
+        return this.renderReviewReport(result.report);
       default:
         return JSON.stringify(result, null, 2);
     }
@@ -530,6 +533,45 @@ export class TerminalRenderer implements UIRenderer {
     return out + '\n';
   }
 
+  private renderReviewReport(report: ReviewReport): string {
+    const riskColor = report.overallRisk === 'high' ? RED : report.overallRisk === 'medium' ? YELLOW : GREEN;
+    let out = c('\n代码评审报告\n', BOLD);
+    out += `  摘要: ${report.summary}\n`;
+    out += `  总体风险: ${c(report.overallRisk.toUpperCase(), riskColor)}\n`;
+    out += `  变更: ${report.stats.filesChanged} 文件, +${report.stats.insertions}/-${report.stats.deletions}, ${report.stats.commentsCount} 条意见\n`;
+
+    if (report.comments.length === 0) {
+      out += c('  没有发现评审意见。\n', DIM);
+      return out;
+    }
+
+    const severityIcon = (s: ReviewComment['severity']) => {
+      if (s === 'critical') return c('✖', RED);
+      if (s === 'warning') return c('▲', YELLOW);
+      return c('ℹ', BLUE);
+    };
+    const dimensionLabel = (d: ReviewComment['dimension']) => {
+      if (d === 'scope') return '范围';
+      if (d === 'risk') return '风险';
+      if (d === 'style') return '风格';
+      return '缺陷';
+    };
+
+    out += c('\n  评审意见:\n', BOLD);
+    for (const comment of report.comments) {
+      const loc = comment.lineStart === comment.lineEnd
+        ? `L${comment.lineStart}`
+        : `L${comment.lineStart}-${comment.lineEnd}`;
+      out += `\n  ${severityIcon(comment.severity)} ${c(dimensionLabel(comment.dimension), DIM)} ${c(comment.title, BOLD)}`;
+      out += `\n    ${c(comment.filePath, BLUE)}:${loc}`;
+      out += `\n    ${comment.message}`;
+      if (comment.suggestion) {
+        out += `\n    ${c('建议:', GREEN)} ${comment.suggestion}`;
+      }
+    }
+    return out + '\n';
+  }
+
   private renderNodusErrorCard(error: NodusError, module: string): string {
     const suggestion = getDegradationSuggestion(error.code);
     let out = c('\n⚠ 运行降级提示', YELLOW) + '\n';
@@ -561,7 +603,7 @@ export class TerminalRenderer implements UIRenderer {
       }
       if (['symbol_list', 'reference_list', 'call_graph', 'impact_report', 'change_history', 'symbol_overview',
            'symbol_ranking', 'module_coupling', 'call_chain', 'todo_list', 'stats_report', 'change_heat',
-           'type_relationship_list'].includes(k)) {
+           'type_relationship_list', 'review_report'].includes(k)) {
         return k as Card['kind'];
       }
       if (['empty_input', 'unparseable', 'ambiguous', 'unsupported'].includes(k)) {

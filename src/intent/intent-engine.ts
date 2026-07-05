@@ -17,6 +17,7 @@ export interface IntentEntity {
   symbolName?: string;
   filePath?: string;
   moduleName?: string;
+  projectPath?: string;
   timeRange?: { from: Date; to: Date };
   author?: string;
   /** analytics / stats 子类型，用于区分具体统计/分析动作 */
@@ -30,6 +31,8 @@ export interface IntentEntity {
   };
   /** 类型关系意图的具体关系类型 */
   relationshipKind?: 'subclasses' | 'implementations' | 'type_uses';
+  /** 代码评审意图的 commit hash */
+  commitHash?: string;
 }
 
 export interface QueryIntent {
@@ -41,6 +44,7 @@ export interface QueryIntent {
     activeFile?: string;
     cursorSymbol?: string;
     selectedCode?: string;
+    implicitParams?: Record<string, unknown>;
   };
   candidates?: QueryIntent[];
 }

@@ -12,7 +12,6 @@ import type {
   IndexStatus, SymbolKind, ReferenceKind, SymbolId, CallDirection,
   RiskLevel, ImportBinding,
 } from '../common/types.js';
-import type { LanguageParser } from './language-parser.js';
 import { CodeIntelError } from '../common/errors.js';
 import type {
   CodeIntelligence, IndexReport, FileIndexResult,
@@ -21,9 +20,11 @@ import type {
 import type { GitIntelligence, DiffData } from '../git-intel/git-intelligence.js';
 import { TypeScriptParser } from './parsers/typescript-parser.js';
 import { PythonParser } from './parsers/python-parser.js';
+import { PluginRegistry } from './parsers/plugin-system.js';
 import { DefaultCodeAnalytics } from './code-analytics.impl.js';
 import { ModuleResolver } from './module-resolver.js';
 import { ReferenceResolver } from './reference-resolver.js';
+import type { CodeReviewer } from '../code-review/code-reviewer.js';
 
 /** 默认排除的文件模式 */
 const EXCLUDE_PATTERNS = [
@@ -33,27 +34,33 @@ const EXCLUDE_PATTERNS = [
 
 export class CodeIntelligenceImpl implements CodeIntelligence {
   private store: KnowledgeStore;
-  private parsers: Map<Language, LanguageParser>;
+  private registry: PluginRegistry;
   private projectRoot: string | null = null;
   private supportedExtensions: string[] = [];
   private gitIntel: GitIntelligence | null = null;
+  private codeReviewer: CodeReviewer | null = null;
   private state: { kind: 'idle' | 'ready'; symbolCount: number; lastIndexed: string } = {
     kind: 'idle', symbolCount: 0, lastIndexed: '',
   };
 
   constructor(store: KnowledgeStore) {
     this.store = store;
-    this.parsers = new Map();
+    this.registry = new PluginRegistry();
     const tsParser = new TypeScriptParser();
     const pyParser = new PythonParser();
-    this.parsers.set('typescript', tsParser);
-    this.parsers.set('javascript', tsParser);
-    this.parsers.set('python', pyParser);
+    this.registry.register(tsParser);
+    this.registry.registerAlias('javascript', 'typescript');
+    this.registry.register(pyParser);
   }
 
   /** 注入 GitIntelligence 依赖（用于 changeHistory） */
   setGitIntel(git: GitIntelligence): void {
     this.gitIntel = git;
+  }
+
+  /** 注入 CodeReviewer 依赖（用于 code_review 意图） */
+  setCodeReviewer(reviewer: CodeReviewer): void {
+    this.codeReviewer = reviewer;
   }
 
   // ========== 索引管理 ==========
@@ -70,9 +77,9 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
     // 收集所有匹配语言扩展名的文件
     const extensions = new Set<string>();
     for (const lang of languages) {
-      const parser = this.parsers.get(lang);
-      if (parser) {
-        for (const ext of parser.fileExtensions()) extensions.add(ext);
+      const plugin = this.registry.getPlugin(lang);
+      if (plugin) {
+        for (const ext of plugin.extensions) extensions.add(ext);
       }
     }
     this.supportedExtensions = [...extensions];
@@ -86,8 +93,8 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
         const lang = this.detectLanguage(file);
         if (!lang || !languages.includes(lang)) continue;
 
-        const parser = this.parsers.get(lang);
-        if (!parser) continue;
+        const plugin = this.registry.getParserForFile(file);
+        if (!plugin) continue;
 
         const source = readFileSync(file, 'utf-8');
         const checksum = this.computeChecksum(source);
@@ -107,8 +114,9 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
           this.store.symbolsRemove(file);
           this.store.refsRemoveForFile(file);
 
-          symbols = parser.parseSymbols(source, file);
-          refs = parser.parseReferences(source, symbols);
+          const parsed = plugin.parse(file, source);
+          symbols = parsed.symbols;
+          refs = parsed.references;
 
           // parser 无法从空 symbols 推断文件路径时，显式修正
           for (const ref of refs) {
@@ -171,12 +179,12 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
     for (const file of files) {
       const lang = this.detectLanguage(file);
       if (!lang || !languages.includes(lang)) continue;
-      const parser = this.parsers.get(lang);
-      if (!(parser instanceof TypeScriptParser)) continue;
+      const plugin = this.registry.getParserForFile(file);
+      if (!plugin || plugin.name !== 'typescript') continue;
       try {
         const source = readFileSync(file, 'utf-8');
-        const bindings = parser.parseImportBindings(source, file);
-        bindingsByFile.set(file, bindings);
+        const parsed = plugin.parse(file, source);
+        bindingsByFile.set(file, parsed.importBindings ?? []);
       } catch {
         bindingsByFile.set(file, []);
       }
@@ -207,11 +215,8 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
 
   async indexFile(filePath: string): Promise<FileIndexResult> {
     const startTime = Date.now();
-    const lang = this.detectLanguage(filePath);
-    if (!lang) throw new CodeIntelError(CodeIntelError.UNSUPPORTED_FILE, `Unsupported file: ${filePath}`);
-
-    const parser = this.parsers.get(lang);
-    if (!parser) throw new CodeIntelError(CodeIntelError.NO_PARSER, `No parser for: ${lang}`);
+    const plugin = this.registry.getParserForFile(filePath);
+    if (!plugin) throw new CodeIntelError(CodeIntelError.UNSUPPORTED_FILE, `Unsupported file: ${filePath}`);
 
     const source = readFileSync(filePath, 'utf-8');
     const checksum = this.computeChecksum(source);
@@ -232,8 +237,9 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
     this.store.refsRemoveForFile(filePath);
 
     // 重新解析
-    const symbols = parser.parseSymbols(source, filePath);
-    const refs = parser.parseReferences(source, symbols);
+    const parsed = plugin.parse(filePath, source);
+    const symbols = parsed.symbols;
+    const refs = parsed.references;
 
     // parser 无法从空 symbols 推断文件路径时，显式修正
     for (const ref of refs) {
@@ -261,8 +267,8 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
 
     // 解析当前文件跨文件引用
     let referencesUpdated = refsAdded;
-    if (parser instanceof TypeScriptParser) {
-      const bindings = parser.parseImportBindings(source, filePath);
+    if (plugin.name === 'typescript') {
+      const bindings = parsed.importBindings ?? [];
       const resolver = new ReferenceResolver(new ModuleResolver(this.projectRoot ?? dirname(filePath)), this.store);
       const fileRefs = this.store.refsFindByFile(filePath);
       const before = fileRefs.map(r => r.target_symbol_id);
@@ -646,6 +652,45 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
           relationships: related.map(s => ({ kind: relKind, symbol: s })),
         };
       }
+      case 'code_review': {
+        if (!this.codeReviewer || !this.projectRoot) {
+          return {
+            kind: 'review_report',
+            report: {
+              summary: this.codeReviewer ? '无法确定项目根路径' : '代码评审助手未初始化',
+              stats: { filesChanged: 0, insertions: 0, deletions: 0, commentsCount: 0 },
+              overallRisk: 'low',
+              comments: [],
+            },
+          };
+        }
+        const commitHash = entities.commitHash;
+        if (!commitHash) {
+          return {
+            kind: 'review_report',
+            report: {
+              summary: '请提供要评审的 commit hash，例如：评审 commit abc1234',
+              stats: { filesChanged: 0, insertions: 0, deletions: 0, commentsCount: 0 },
+              overallRisk: 'low',
+              comments: [],
+            },
+          };
+        }
+        try {
+          const report = await this.codeReviewer.reviewCommit(this.projectRoot, commitHash);
+          return { kind: 'review_report', report };
+        } catch (err) {
+          return {
+            kind: 'review_report',
+            report: {
+              summary: `评审失败: ${err instanceof Error ? err.message : String(err)}`,
+              stats: { filesChanged: 0, insertions: 0, deletions: 0, commentsCount: 0 },
+              overallRisk: 'low',
+              comments: [],
+            },
+          };
+        }
+      }
       default:
         return { kind: 'symbol_list', symbols: [] };
     }
@@ -749,6 +794,11 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
     if (['.ts', '.tsx'].includes(ext)) return 'typescript';
     if (['.js', '.jsx'].includes(ext)) return 'javascript';
     if (ext === '.py') return 'python';
+    if (ext === '.rs') return 'rust';
+    if (ext === '.go') return 'go';
+    if (ext === '.java') return 'java';
+    if (ext === '.cs') return 'csharp';
+    if (['.cpp', '.cc', '.cxx', '.hpp'].includes(ext)) return 'cpp';
     return null;
   }
 

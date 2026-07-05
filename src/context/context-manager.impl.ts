@@ -13,6 +13,7 @@ export class DefaultContextManager implements ContextManager {
       cursor_line: null,
       cursor_col: null,
       cursor_symbol: null,
+      cursor_symbol_kind: null,
       selected_code: null,
       selected_range: null,
       recent_queries: [],
@@ -35,6 +36,7 @@ export class DefaultContextManager implements ContextManager {
           this.state.cursor_line = null;
           this.state.cursor_col = null;
           this.state.cursor_symbol = null;
+          this.state.cursor_symbol_kind = null;
         }
         break;
       case 'cursor_moved':
@@ -44,6 +46,7 @@ export class DefaultContextManager implements ContextManager {
           this.state.cursor_line = delta.line;
           this.state.cursor_col = delta.col;
           this.state.cursor_symbol = delta.symbol;
+          this.state.cursor_symbol_kind = delta.symbol_kind ?? null;
         }
         break;
       case 'selection_changed':
@@ -56,6 +59,7 @@ export class DefaultContextManager implements ContextManager {
           cursor_line: null,
           cursor_col: null,
           cursor_symbol: null,
+          cursor_symbol_kind: null,
           selected_code: null,
           selected_range: null,
           recent_queries: this.state.recent_queries,

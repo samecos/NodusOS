@@ -38,6 +38,7 @@ export type CardKind =
   | 'ambiguity'
   | 'env_status'
   | 'type_relationship_list'
+  | 'review_report'
   | 'history_list'
   | 'recommendation_list'
   | 'notification'

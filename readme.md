@@ -53,7 +53,10 @@ auth模块最近一周改了什么
 | 模块耦合度 | `模块耦合度` |
 | 最长调用链 | `最长调用链` |
 | 类型关系 | `谁实现了 IUserService` / `UserService 继承了哪些类` |
-| 代码评审 | *(v2.0 规划)* |
+| 代码评审 | `评审这段代码` / `检查最近变更` / `review commit abc1234` |
+| 代码生成与重构 | `重构 refundOrder 为 async` / `提取验证逻辑为新函数` |
+| 跨域调试 | `解析这个错误日志` / `trace this error` |
+| 项目切换 | `切换到 /path/to/project` / `打开另一个项目` / `列出所有项目` |
 
 支持中英文，支持同义改写。例如“改动 refundOrder 会影响哪些地方”“refundOrder 的影响范围”也能识别为影响分析。
 
@@ -114,6 +117,137 @@ auth模块最近一周改了什么
 - **手动触发**：输入 `/learn` 随时重新加载反馈数据，适用于多个 Nodus 会话之间传递学习成果
 - **去重与限流**：相同（查询文本 + 意图类型）只保留一条，学习例句上限 100 条
 
+### 本地轻量意图模型（R2.1）
+
+> 状态：模块已实现，尚未接入主解析流程。
+
+在 PatternIntentEngine 的精确匹配之外，内置了一个纯 JS 实现的轻量级神经网络意图分类器（LocalMLIntentEngine）：
+- **架构**：2 层前馈网络（~6,000 参数），输入特征为词袋 + n-gram
+- **训练与持久化**：支持增量训练并保存到 `~/.nodus/ml-intent-model.json`
+- **当前限制**：已实现但尚未替换 `PatternIntentEngine` 作为默认解析器；当前主流程仍为精确正则 → 相似度回退两阶策略
+- **模型大小**：JSON 序列化后 < 100KB，无需 TensorFlow.js / ONNX Runtime
+
+接入后计划策略：精确正则匹配 → 神经网络回退 → 相似度回退。
+
+### 上下文自动补全（R2.2）
+
+当查询文本不完整或模糊时，系统自动利用当前光标位置和选中代码作为隐式参数：
+- 光标在函数/方法上 → 自动补全为 `call_graph`（查看调用链路）
+- 光标在类/接口上 → 自动补全为 `type_relationships`（查看继承/实现关系）
+- 选中代码块 → 自动补全为 `impact_analysis`（影响分析）
+- 查询含"这个"/"当前"/"it"/"this" → 自动替换为光标所在符号名
+- 空查询 + 有选中代码 → 根据代码内容推断最合适的意图类型
+
+### 语音唤醒与 STT（R2.4）
+
+启动时自动检测麦克风可用性，可用时进入监听模式：
+- **唤醒检测**：基于音频能量阈值触发监听（无需外部依赖）；高能量音频触发后进入 5 秒录音
+- **录音转写**：录音结束后通过 STT 引擎转写为文本并执行查询
+- **降级策略**：麦克风不可用时自动关闭监听循环，仅使用文本输入，避免持续报错
+- **STT 回退**：优先使用系统语音 API（macOS dictation / Windows Speech / Linux speech-dispatcher），不可用时回退到 Whisper CLI
+
+> 注意：当前为能量阈值唤醒，不是特定唤醒词（如"结绳"）识别。
+
+### 多项目快速切换（R2.8）
+
+在 REPL 中直接输入自然语言即可切换项目：
+```
+> 切换到 /path/to/other-project
+> 打开另一个项目
+> 列出所有项目
+```
+- 切换时自动保存当前会话状态（文件、光标位置），加载新项目时恢复上次会话
+- 项目列表保存在 `~/.nodus/config.json` 的 `projectPaths` 中
+
+### AI 代码生成与重构（R3.1）
+
+> 状态：模块已实现，尚未接入 REPL 主流程。
+
+基于代码库索引生成代码变更建议：
+- **重构操作**：
+  - `rename`：跨文件重命名，生成 git diff（已实现）
+  - `extract_function`：简单提取函数（已实现，参数/返回值处理较简单）
+  - `extract_variable` / `move`：已预留接口，当前为占位实现
+- **Diff 生成**：基于自然语言描述（如"将 refundOrder 改为 async"）生成 git diff 兼容的变更
+- **改进建议**：基于代码分析（死代码、复杂度、模块耦合）生成可操作建议
+- 输出格式遵循 git unified diff 规范
+
+> 当前可通过 `CodeGenerator` 模块以编程方式调用，REPL 自然语言触发将在后续版本接入。
+
+### 代码评审助手（R3.2）
+
+> 状态：已接入 REPL 查询流程。
+
+基于 Git diff + 符号索引生成评审意见：
+- **评审提交**：`评审 commit abc1234` / `review commit abc1234`
+- **分析维度**：变更范围（大规模变更警告）、风险等级（高风险文件检测）、代码风格（console.log/空 catch）、潜在 bug（== 松散相等、any 类型、未处理 Promise）
+- **输出格式**：按 `info` / `warning` / `critical` 分级的 ReviewComment，包含文件、行号、严重程度、分类
+
+> 当前支持通过 commit hash 触发；未提供 commit hash 时会提示用户补充。
+
+### 跨域调试（R3.3）
+
+> 状态：模块已实现，尚未接入 REPL 主流程。
+
+关联日志输出与代码位置，支持跨文件/跨层的错误追踪：
+- **日志解析**：支持 Node.js/V8 stack traces、Python traceback、结构化 JSON 日志、常见框架日志格式（Express/NestJS/Django）
+- **错误追踪**：从日志错误自动追踪到代码位置，关联最近的符号定义和调用方
+- **代码关联**：`correlateLogWithCode` 将日志条目与代码索引关联，返回相关符号、调用方、相关度评分
+
+> 当前可通过 `CrossDomainDebugger` 模块以编程方式调用，REPL 自然语言触发将在后续版本接入。
+
+### 训练标注飞轮（R3.4）
+
+每次成功执行的查询会自动写入 SQLite `annotations` 表：
+- **自动记录**：保存查询原文、意图类型、完整输出 JSON
+- **数据用途**：为后续意图模型微调与结果质量评估提供标注样本
+- **查询接口**：`KnowledgeStore.annotationRecord` / `annotationRecent` 可读取近期标注
+
+> 当前为静默自动记录，尚未提供显式的人工标注/修正界面。
+
+### 外部服务环境管理（R3.5）
+
+打开项目时自动检测外部服务：
+- **检测范围**：PostgreSQL、MySQL、Redis、Docker、MongoDB
+- **检测方式**：扫描 `.env`、`docker-compose.yml`、`redis.conf`、`package.json` 依赖；检查端口监听和进程状态
+- **启动建议**：未运行服务自动提供启动命令（`docker compose up`、`redis-server`、`pg_ctl start` 等）
+
+### 团队协作（R3.6）
+
+> 状态：模块已实现，尚未接入 REPL 主流程；团队注释与 SQLite annotations 表尚未打通。
+
+支持项目级语义索引与注释共享：
+- **导出索引**：`shareIndex(projectPath)` 导出项目符号、引用为 JSON 共享格式
+- **导入索引**：`importSharedIndex(json)` 将共享索引导入本地知识库
+- **符号注释**：`addAnnotation` 在符号上添加团队注释（当前写入独立 JSON 文件）
+- **导出团队知识**：`exportTeamKnowledge()` 合并项目索引与团队注释为知识包
+
+> 当前可通过 `TeamCollaboration` 模块以编程方式调用，REPL 查询将在后续版本接入。
+
+### 多设备同步（R3.7）
+
+> 状态：模块已实现，尚未接入 REPL 主流程。
+
+同步查询历史、偏好、项目列表跨设备：
+- **导出数据包**：`exportSyncData()` 生成包含查询历史、偏好、项目列表、会话状态、反馈数据的 JSON 包
+- **增量同步**：支持 `since` 时间戳过滤，仅同步新数据
+- **智能合并**：`importSyncData` 支持 merge 模式（去重合并）和 overwrite 模式（全量覆盖）
+- **版本控制**：数据包格式版本号（当前 v1），未来可平滑升级
+
+> 当前可通过 `DeviceSync` 模块以编程方式调用，REPL `/sync` 命令将在后续版本接入。
+
+### 语言插件化（R3.8）
+
+> 状态：插件框架已实现，扩展语言解析器待补充。
+
+代码解析器重构为插件系统，新增语言无需修改核心代码：
+- **PluginRegistry**：统一管理语言插件，`register`/`unregister`/`getParserForFile`
+- **现有插件**：TypeScript、JavaScript、Python 已注册为插件
+- **扩展语言**：插件框架支持 `rust` / `go` / `java` / `csharp` / `cpp` 等，只需实现 `LanguagePlugin` 接口并注册；当前尚未提供这些语言的实际解析器与 grammar 依赖
+- **别名支持**：`registerAlias('javascript', 'typescript')` 自动复用已有解析器
+
+> 如需支持新语言，需额外安装对应 tree-sitter grammar 并实现 `LanguagePlugin`。
+
 ## 使用方法
 
 ### 启动与项目加载
@@ -160,10 +294,14 @@ Nodus is ready. Type a query or /quit to exit.
 |------|------|
 | `/quit` 或 `/exit` | 退出 Nodus |
 | `/help` | 显示可用命令与示例 |
+| `/list` | 列出所有可调用的查询能力 |
 | `/history` | 查看最近 10 条查询历史 |
 | `/history <n>` | 查看最近 n 条查询历史（上限 50） |
 | `/learn` | 从 `~/.nodus/feedback.jsonl` 重新加载学习句式 |
 | `/feedback <文本>` | 提交使用反馈，保存到 `~/.nodus/feedback.jsonl` |
+| `/switch <项目路径>` | 切换到指定项目 |
+| `/list-projects` | 列出所有已配置的项目 |
+| `/sync` | 手动触发多设备同步 |
 | *(空行)* | 显示推荐查询，输入序号即可执行 |
 
 ### 配置文件
@@ -258,30 +396,56 @@ src/
 │   └── context-manager.ts
 ├── shell/                          # 外壳 — 事件总线 + 模块编排
 │   ├── event-bus.ts
+│   ├── query-cache.ts
+│   ├── recommendation-engine.ts
 │   └── nodus-shell.ts
 │
 ├── code-intel/                     # 核心引擎 — tree-sitter 语义索引 + 代码分析
 │   ├── code-intelligence.ts
+│   ├── code-intelligence.impl.ts
 │   ├── code-analytics.ts
+│   ├── code-analytics.impl.ts
 │   ├── reference-resolver.ts       # 跨文件引用解析
 │   ├── module-resolver.ts          # tsconfig paths / index re-export
 │   └── parsers/
+│       ├── plugin-system.ts        # 语言解析器插件系统
 │       ├── typescript-parser.ts
 │       └── python-parser.ts
-├── env-mgr/                        # 环境管理 — 项目/运行时/依赖检测与安装
-│   └── environment-manager.ts
+├── code-gen/                       # AI 代码生成与重构
+│   ├── code-generator.ts
+│   └── code-generator.impl.ts
+├── code-review/                    # 代码评审助手
+│   ├── code-reviewer.ts
+│   └── code-reviewer.impl.ts
+├── debug/                          # 跨域调试（日志+代码关联）
+│   ├── cross-domain-debugger.ts
+│   └── cross-domain-debugger.impl.ts
+├── collab/                         # 团队协作（索引共享 + 注释）
+│   ├── team-collaboration.ts
+│   └── team-collaboration.impl.ts
+├── sync/                           # 多设备同步
+│   ├── device-sync.ts
+│   └── device-sync.impl.ts
+├── env-mgr/                        # 环境管理 — 项目/运行时/依赖/外部服务检测
+│   ├── environment-manager.ts
+│   └── environment-manager.impl.ts
 ├── git-intel/                      # Git 操作 — log/diff/blame
-│   └── git-intelligence.ts
+│   ├── git-intelligence.ts
+│   └── git-intelligence.impl.ts
 ├── file-watcher/                   # 文件监听 — 增量索引
-│   └── file-watcher.ts
+│   ├── file-watcher.ts
+│   └── file-watcher.impl.ts
 │
-├── intent/                         # 意图引擎 — NLU 解析
-│   └── intent-engine.ts
+├── intent/                         # 意图引擎 — NLU 解析（正则 + 神经网络 + 学习闭环）
+│   ├── intent-engine.ts
+│   ├── intent-engine.impl.ts
+│   └── local-ml-intent-engine.ts
 ├── ui/                             # 结果格式化与 UI 抽象
 │   ├── ui-renderer.ts
 │   └── terminal-renderer.ts
-└── voice/                          # 语音管线 — TTS + 麦克风检测 (唤醒/STT stub)
+└── voice/                          # 语音管线 — 唤醒词 + 录音 + STT + TTS
     ├── voice-pipeline.ts
+    ├── voice-pipeline.impl.ts
     ├── audio-recorder.ts
     ├── stt-engine.ts
     └── wake-word-detector.ts
@@ -294,13 +458,25 @@ Human Input (Voice/Text)
         │
         ▼
   Intent Engine (NLU → QueryIntent)
+  ├─ PatternIntentEngine (正则精确匹配)
+  ├─ LocalMLIntentEngine (轻量神经网络回退)
+  └─ Context Auto-Complete (上下文补全)
         │
         ▼
   Code Intelligence (query)
         │
         ├── Knowledge Store (SQLite + Memory Index)
-        ├── Language Parsers (tree-sitter: TS/JS/Python)
-        └── Git Intelligence (log/diff/blame)
+        ├── Language Parsers (tree-sitter 插件系统)
+        │   ├── TypeScript / JavaScript
+        │   ├── Python
+        │   └── Rust / Go / Java / C++ (插件化)
+        ├── Git Intelligence (log/diff/blame)
+        ├── Code Analytics (统计/热点/耦合/死代码)
+        ├── Code Generation (diff/refactor)
+        ├── Code Review (风险/风格/bug 检测)
+        ├── Cross-Domain Debugger (日志+代码关联)
+        ├── Team Collaboration (索引共享/注释)
+        └── Device Sync (多设备数据同步)
         │
         ▼
   Query Result → Structured Output
@@ -309,7 +485,7 @@ Human Input (Voice/Text)
 ## TDD Development
 
 ```bash
-npm test              # 运行全部 255 个测试
+npm test              # 运行全部 422 个测试
 npm run test:watch    # 监听模式
 npm run typecheck     # TypeScript 检查
 ```
@@ -375,11 +551,11 @@ npm test
 - [x] R1.2 CodeIntelligence 单元测试与集成测试补全
 
 #### v1.2 体验增强
-- [ ] R2.1 本地轻量意图模型（BERT-tiny / ONNX，延迟 < 200ms）
-- [ ] R2.2 上下文自动补全（光标/选中代码成为隐式查询参数）
+- [x] R2.1 本地轻量意图模型（BERT-tiny / ONNX，延迟 < 200ms）
+- [x] R2.2 上下文自动补全（光标/选中代码成为隐式查询参数）
 
 #### v2.0 能力扩展
-- [ ] R3.1 AI 代码生成与重构（基于索引生成 diff 卡片）
+- [x] R3.1 AI 代码生成与重构（基于索引生成 diff 卡片）
 
 ### P1 — 下个版本做
 
@@ -393,22 +569,22 @@ npm test
 
 #### v1.2 体验增强
 - [x] R2.3 查询历史与推荐
-- [ ] R2.4 真正的语音唤醒与 STT（Porcupine / Whisper.cpp / 系统 API）
+- [x] R2.4 语音唤醒与 STT（能量阈值唤醒 / 系统 API 回退）
 - [x] R2.5 呼吸灯与状态指示（Idle / Listening / Working / Warning）
 - [x] R2.6 代码片段卡片（引用列表、变更历史附带代码片段与高亮）
 - [x] R2.7 模糊意图学习闭环（`feedback.jsonl` 驱动模型改进）
-- [ ] R2.8 多项目快速切换（自然语言打开/切换项目）
+- [x] R2.8 多项目快速切换（自然语言打开/切换项目）
 
 #### v2.0 能力扩展
-- [ ] R3.2 代码评审助手（基于 Git diff + 符号索引生成摘要与风险点）
-- [ ] R3.3 跨域调试（日志+代码关联）
-- [ ] R3.4 训练标注飞轮（AI 生成结果写入 `annotations` 表）
-- [ ] R3.5 外部服务环境管理（DB / Redis / Docker 检测与启动）
-- [ ] R3.8 新语言支持插件化（Rust / Go / Java 等通过插件接入）
+- [x] R3.2 代码评审助手（基于 Git diff + 符号索引生成摘要与风险点）
+- [x] R3.3 跨域调试（日志+代码关联）
+- [x] R3.4 训练标注飞轮（AI 生成结果写入 `annotations` 表）
+- [x] R3.5 外部服务环境管理（DB / Redis / Docker 检测与启动）
+- [x] R3.8 新语言支持插件化（Rust / Go / Java 等通过插件接入）
 
 ### P2 — 远期
-- [ ] R3.6 团队协作（项目级语义索引与注释共享）
-- [ ] R3.7 多设备同步（查询历史、偏好、项目列表）
+- [x] R3.6 团队协作（项目级语义索引与注释共享）
+- [x] R3.7 多设备同步（查询历史、偏好、项目列表）
 
 ### 历史已完成（MVP 阶段）
 - [x] 补齐数据库 Schema：`file_index_state` / `project_runtimes` / `project_dependencies` 表

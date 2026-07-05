@@ -80,6 +80,112 @@ async function main() {
       continue;
     }
 
+    // /help 命令 — 显示可用命令
+    if (input === '/help') {
+      console.log(`
+可用命令：
+  /help                显示本帮助
+  /list                列出所有可调用的查询能力
+  /history [n]         查看最近 n 条查询历史（默认 10，最大 50）
+  /learn               重新加载 feedback.jsonl 学习例句
+  /feedback <文本>     提交使用反馈
+  /switch <项目路径>   切换到指定项目
+  /list-projects       列出所有已配置项目
+  /sync                导出同步数据（JSON）
+  /quit 或 /exit       退出 Nodus
+
+直接输入自然语言即可查询，例如：
+  refundOrder在哪里定义的
+  PaymentService被哪些地方调用了
+  项目代码统计
+`);
+      continue;
+    }
+
+    // /list 命令 — 列出可调用的查询能力
+    if (input === '/list') {
+      console.log(`
+可调用的查询能力：
+
+  代码理解
+    定义定位        refundOrder在哪里定义的
+    引用查找        PaymentService被哪些地方调用了
+    调用链路        refundOrder的调用链路是什么样的
+    影响分析        如果我改了User模型，哪些文件会受影响
+    文件概览        payment.service.ts里有哪些函数
+    类型关系        谁实现了 IUserService
+
+  代码分析
+    代码统计        项目代码统计
+    最热函数        调用次数最多的函数
+    死代码检测      有哪些未使用的导出
+    变更热点        变更热点文件
+    模块耦合        模块耦合度
+    最长调用链      最长调用链
+    TODO 扫描       项目里有哪些 TODO
+
+  历史与评审
+    变更历史        auth模块最近一周改了什么
+    代码评审        评审 commit abc1234
+
+  项目管理
+    切换项目        切换到 /path/to/project
+    列出项目        /list-projects
+    查询历史        /history
+
+  其他
+    推荐查询        直接按回车
+    手动反馈        /feedback 查询结果不够准确
+    多设备同步      /sync
+`);
+      continue;
+    }
+
+    // /feedback 命令 — 提交手动反馈
+    if (input.startsWith('/feedback ')) {
+      const text = input.slice('/feedback '.length).trim();
+      if (text) {
+        shell.recordManualFeedback(text);
+        console.log('反馈已记录，谢谢。');
+      } else {
+        console.log('请提供反馈内容，例如：/feedback 查询结果不够准确');
+      }
+      continue;
+    }
+
+    // /switch 命令 — 切换项目
+    if (input.startsWith('/switch ')) {
+      const projectPath = input.slice('/switch '.length).trim();
+      if (projectPath) {
+        try {
+          await shell.switchProject(projectPath);
+          console.log(`已切换到项目: ${projectPath}`);
+        } catch (err) {
+          console.error('切换项目失败:', err instanceof Error ? err.message : String(err));
+        }
+      } else {
+        console.log('请提供项目路径，例如：/switch /path/to/project');
+      }
+      continue;
+    }
+
+    // /list-projects 命令 — 列出项目
+    if (input === '/list-projects') {
+      console.log(shell.getProjectList());
+      continue;
+    }
+
+    // /sync 命令 — 导出同步数据
+    if (input === '/sync') {
+      try {
+        const data = shell.exportSyncData();
+        console.log(JSON.stringify(data, null, 2));
+      } catch (err) {
+        console.error('导出同步数据失败:', err instanceof Error ? err.message : String(err));
+      }
+      continue;
+    }
+
     if (input === '/quit' || input === '/exit') break;
 
     try {

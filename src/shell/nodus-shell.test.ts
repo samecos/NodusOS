@@ -313,4 +313,177 @@ describe('NodusShell', () => {
     expect(states).toContain('thinking');
     expect(states).toContain('idle');
   });
+
+  // TC-UT-SH-014: switchProject 应保存当前会话状态并切换项目
+  it('TC-UT-SH-014: switchProject should save session state and switch to new project', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    const tmpDir = currentTmpDir;
+    const secondProject = mkdtempSync(join(tmpDir, 'second-project-'));
+    writeFileSync(join(secondProject, 'package.json'), JSON.stringify({ name: 'second-project' }));
+    const configPath = join(tmpDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      projectPaths: [tinyProjectPath],
+      dbPath: ':memory:',
+      locale: 'zh-CN',
+    }, null, 2));
+
+    currentConfigManager = new JsonConfigManager(configPath);
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    // 设置当前项目的会话状态
+    shell.contextMgr.update({ kind: 'project_changed', root: tinyProjectPath });
+    shell.contextMgr.update({ kind: 'file_opened', path: join(tinyProjectPath, 'index.ts') });
+    shell.contextMgr.update({
+      kind: 'cursor_moved',
+      file: join(tinyProjectPath, 'index.ts'),
+      line: 5,
+      col: 2,
+      symbol: 'refundOrder',
+    });
+
+    // 切换到新项目
+    await shell.switchProject(secondProject);
+
+    // 验证配置中已包含新项目
+    const paths = currentConfigManager.get('projectPaths') as string[];
+    expect(paths).toContain(secondProject);
+
+    // 验证上下文已更新为新项目
+    const ctx = shell.contextMgr.snapshot();
+    expect(ctx.active_project_root).toBe(secondProject);
+  });
+
+  // TC-UT-SH-015: listProjects 应返回项目列表
+  it('TC-UT-SH-015: listProjects should return list of projects', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    const configPath = join(currentTmpDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      projectPaths: [tinyProjectPath],
+      dbPath: ':memory:',
+      locale: 'zh-CN',
+    }, null, 2));
+
+    currentConfigManager = new JsonConfigManager(configPath);
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    const projects = shell.listProjects();
+    expect(projects.length).toBeGreaterThan(0);
+    expect(projects.some(p => p.path === tinyProjectPath)).toBe(true);
+  });
+
+  // TC-UT-SH-016: handleQuery 应检测 switch_project 意图并切换项目
+  it('TC-UT-SH-016: handleQuery should detect switch_project intent and switch project', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    const tmpDir = currentTmpDir;
+    const secondProject = mkdtempSync(join(tmpDir, 'switch-target-'));
+    writeFileSync(join(secondProject, 'package.json'), JSON.stringify({ name: 'switch-target' }));
+    const configPath = join(tmpDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      projectPaths: [tinyProjectPath],
+      dbPath: ':memory:',
+      locale: 'zh-CN',
+    }, null, 2));
+
+    currentConfigManager = new JsonConfigManager(configPath);
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    const result = await shell.handleQuery(`切换到 ${secondProject}`);
+    expect(result).toBeDefined();
+    if (typeof result === 'object' && result !== null && 'kind' in result) {
+      expect(result.kind).toBe('switch_project');
+    }
+
+    // 验证配置中已包含新项目
+    const paths = currentConfigManager.get('projectPaths') as string[];
+    expect(paths).toContain(secondProject);
+  });
+
+  // TC-UT-SH-017: handleQuery 应检测 list_projects 意图并返回列表
+  it('TC-UT-SH-017: handleQuery should detect list_projects intent and return list', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    const configPath = join(currentTmpDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      projectPaths: [tinyProjectPath],
+      dbPath: ':memory:',
+      locale: 'zh-CN',
+    }, null, 2));
+
+    currentConfigManager = new JsonConfigManager(configPath);
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    const result = await shell.handleQuery('列出所有项目');
+    expect(Array.isArray(result)).toBe(true);
+    const projects = result as Array<{ path: string }>;
+    expect(projects.length).toBeGreaterThan(0);
+    expect(projects.some(p => p.path === tinyProjectPath)).toBe(true);
+  });
+
+  // TC-UT-SH-018: handleQueryFormatted 应检测 switch_project 意图并返回格式化消息
+  it('TC-UT-SH-018: handleQueryFormatted should detect switch_project intent and return formatted message', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    const tmpDir = currentTmpDir;
+    const secondProject = mkdtempSync(join(tmpDir, 'formatted-target-'));
+    writeFileSync(join(secondProject, 'package.json'), JSON.stringify({ name: 'formatted-target' }));
+    const configPath = join(tmpDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      projectPaths: [tinyProjectPath],
+      dbPath: ':memory:',
+      locale: 'zh-CN',
+    }, null, 2));
+
+    currentConfigManager = new JsonConfigManager(configPath);
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    const result = await shell.handleQueryFormatted(`切换到 ${secondProject}`);
+    expect(result).toContain('已切换到项目');
+    expect(result).toContain(secondProject);
+  });
+
+  // TC-UT-SH-019: getProjectList 应返回格式化项目列表
+  it('TC-UT-SH-019: getProjectList should return formatted project list', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    currentConfigManager = new JsonConfigManager(join(currentTmpDir, 'config.json'));
+    currentConfigManager.set('projectPaths', [tinyProjectPath]);
+    currentConfigManager.set('dbPath', ':memory:');
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    const output = shell.getProjectList();
+    expect(output).toContain('已打开的项目');
+    expect(output).toContain(tinyProjectPath);
+    expect(output).toContain('●');
+  });
+
+  // TC-UT-SH-020: recordManualFeedback 不应抛出异常
+  it('TC-UT-SH-020: recordManualFeedback should append feedback without error', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    process.env.HOME = currentTmpDir;
+    currentConfigManager = new JsonConfigManager(join(currentTmpDir, 'config.json'));
+    currentConfigManager.set('projectPaths', [tinyProjectPath]);
+    currentConfigManager.set('dbPath', ':memory:');
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    expect(() => shell!.recordManualFeedback('测试反馈')).not.toThrow();
+  });
+
+  // TC-UT-SH-021: exportSyncData 应返回同步数据包
+  it('TC-UT-SH-021: exportSyncData should return sync data package', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    currentConfigManager = new JsonConfigManager(join(currentTmpDir, 'config.json'));
+    currentConfigManager.set('projectPaths', [tinyProjectPath]);
+    currentConfigManager.set('dbPath', ':memory:');
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    const data = shell.exportSyncData();
+    expect(data.version).toBe(1);
+    expect(data.projects.length).toBeGreaterThan(0);
+    expect(data.exportedAt).toBeDefined();
+  });
 });

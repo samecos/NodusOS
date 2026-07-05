@@ -10,6 +10,7 @@ import type {
   ChangeScope, IntentType, RiskLevel,
 } from '../common/types.js';
 import type { SymbolMetric, ModuleCoupling, CallChain, TodoComment } from './code-analytics.js';
+import type { ReviewReport } from '../code-review/code-reviewer.js';
 import type { IntentEntity } from '../intent/intent-engine.js';
 
 // ---- 报告类型 ----
@@ -58,6 +59,7 @@ export interface QueryIntent {
     activeFile?: string;
     cursorSymbol?: string;
     selectedCode?: string;
+    implicitParams?: Record<string, unknown>;
   };
   candidates?: QueryIntent[];
 }
@@ -93,13 +95,15 @@ export type QueryResult =
   | { kind: 'todo_list'; comments: TodoComment[] }
   | { kind: 'stats_report'; stats: StatsReport }
   | { kind: 'change_heat'; files: { filePath: string; changeCount: number }[] }
-  | { kind: 'type_relationship_list'; root: Symbol; relationships: TypeRelationship[] };
+  | { kind: 'type_relationship_list'; root: Symbol; relationships: TypeRelationship[] }
+  | { kind: 'review_report'; report: ReviewReport };
 
 // ---- Main interface ----
 
 export interface CodeIntelligence {
   // 依赖注入
   setGitIntel(git: import('../git-intel/git-intelligence.js').GitIntelligence): void;
+  setCodeReviewer(reviewer: import('../code-review/code-reviewer.js').CodeReviewer): void;
 
   // 索引管理
   indexProject(projectRoot: string, languages: Language[]): Promise<IndexReport>;

@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import type { Language, Symbol, Reference, SymbolKind } from '../../common/types.js';
 import type { LanguageParser, CallEdge } from '../language-parser.js';
 import { hashSymbolId } from './utils.js';
+import type { ParsedFile } from './plugin-system.js';
 
 const require = createRequire(import.meta.url);
 const ParserCtor = (require('tree-sitter') as { default?: new () => TreeSitterParser }).default
@@ -289,5 +290,17 @@ export class PythonParser implements LanguageParser {
       return named.length > 0 ? named[named.length - 1]!.text : null;
     }
     return null;
+  }
+
+  // ---- LanguagePlugin 实现 ----
+
+  get name(): string { return 'python'; }
+  get extensions(): string[] { return ['.py']; }
+
+  parse(filePath: string, content: string): ParsedFile {
+    const symbols = this.parseSymbols(content, filePath);
+    const references = this.parseReferences(content, symbols);
+    const callEdges = this.parseCallEdges(content, symbols);
+    return { symbols, references, callEdges };
   }
 }

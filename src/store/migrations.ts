@@ -121,6 +121,17 @@ const INITIAL_SCHEMA = `
     timestamp TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS annotations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    query_history_id INTEGER,
+    input_text TEXT NOT NULL,
+    intent_type TEXT NOT NULL,
+    output_data TEXT NOT NULL,
+    user_rating INTEGER,
+    user_correction TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
   CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_path);
   CREATE INDEX IF NOT EXISTS idx_symbols_kind ON symbols(kind);
@@ -155,6 +166,23 @@ export const MIGRATIONS: Migration[] = [
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
       CREATE INDEX IF NOT EXISTS idx_session_state_updated ON session_state(updated_at);
+    `,
+  },
+  {
+    version: 3,
+    name: 'add_annotations_table',
+    up: `
+      CREATE TABLE IF NOT EXISTS annotations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        query_history_id INTEGER,
+        input_text TEXT NOT NULL,
+        intent_type TEXT NOT NULL,
+        output_data TEXT NOT NULL,
+        user_rating INTEGER,
+        user_correction TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_annotations_created_at ON annotations(created_at);
     `,
   },
 ];
