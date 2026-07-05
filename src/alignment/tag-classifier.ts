@@ -10,8 +10,8 @@ export function classifyDiff(before: string, after: string): string[] {
   const addedLines = extractAddedLines(before, after);
   const removedLines = extractRemovedLines(before, after);
 
-  // add_null_check: 新增了 null/undefined 判断
-  if (addedLines.some(l => /if\s*\(\s*!?\w+\s*(===?|!==?)\s*(null|undefined)\)/.test(l) || /if\s*\(\s*!\w+\s*\)/.test(l))) {
+  // add_null_check: 新增了 null/undefined 判断（含 if (!x) 与 if (!fn()) 形式的真值守护）
+  if (addedLines.some(l => /if\s*\(\s*!?\w+\s*(===?|!==?)\s*(null|undefined)\)/.test(l) || /if\s*\(\s*!\w+\s*(?:\([^)]*\))?\s*\)/.test(l))) {
     if (removedLines.every(l => !/if\s*\(\s*!?\w+\s*(===?|!==?)\s*(null|undefined)\)/.test(l))) {
       tags.push('add_null_check');
     }
