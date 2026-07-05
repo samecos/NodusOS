@@ -465,6 +465,62 @@ export class PatternIntentEngine implements IntentEngine {
         intentType: 'list_projects',
         extractEntities: () => ({}),
       },
+      // 理解层：最近变更
+      {
+        patterns: [
+          /(?:ai\s+)?(?:最近|recent|latest).{0,6}(?:改了?什么|改了?哪儿|变更|changes?|modified)/i,
+          /最近.{0,4}(?:什么|哪些).{0,4}改/i,
+        ],
+        intentType: 'recent_changes',
+        extractEntities: () => ({}),
+      },
+      // 理解层：查看带标注的文件视图
+      {
+        patterns: [
+          /(?:查看|打开|看看|view|show|open)\s+(.+?\.(?:ts|tsx|js|jsx|py))/i,
+          /(.+?\.(?:ts|tsx|js|jsx|py))\s*(?:的)?(?:代码|文件|视图|带标注)/i,
+        ],
+        intentType: 'view_annotated',
+        extractEntities: (match, _text, _ctx) => ({
+          filePath: match![1] ?? undefined,
+        }),
+      },
+      // 理解层：语义块简报
+      {
+        patterns: [
+          /(?:块\s*\d+|chunk\s*\d+).{0,4}(?:的)?(?:简报|brief|改了?什么|详情)/i,
+          /(?:这|那)块.{0,4}(?:简报|改了?什么|详情)/i,
+        ],
+        intentType: 'chunk_brief',
+        extractEntities: (match, _text, _ctx) => {
+          const numMatch = match![0].match(/\d+/);
+          return { subType: numMatch ? `chunk-${parseInt(numMatch[0], 10) - 1}` : undefined };
+        },
+      },
+      // 理解层：确认已审查
+      {
+        patterns: [
+          /(?:这|那)?块.{0,2}(?:过了|ok|pass|确认|confirm)/i,
+          /\/confirm\s+(.+)/i,
+          /确认\s+(.+).{0,2}(?:过了|审完|ok)/i,
+        ],
+        intentType: 'confirm_reviewed',
+        extractEntities: (match, _text, ctx) => ({
+          symbolName: match![1] ? match![1].trim() : ctx.cursor_symbol ?? undefined,
+        }),
+      },
+      // 理解层：删除/列出约定
+      {
+        patterns: [
+          /(?:\/prune|删掉?|移除|remove)\s+(.+?)(?:约定|convention)?/i,
+          /prune\s+(.+)/i,
+          /(?:列出|list|show)\s*(?:约定|conventions?)/i,
+        ],
+        intentType: 'prune_conventions',
+        extractEntities: (match, _text, _ctx) => ({
+          symbolName: match![1]?.trim() ?? undefined,
+        }),
+      },
     ];
 
     for (const rule of rules) {
@@ -475,7 +531,7 @@ export class PatternIntentEngine implements IntentEngine {
           // 类型关系必须能提取到符号名，否则继续匹配后续规则（避免误吞 analytics 等聚合意图）
           if (rule.intentType === 'type_relationships' && !entities.symbolName) continue;
           // 聚合类意图（list_symbols / stats / analytics / list_projects / code_review）模式本身足够明确，直接给高置信度
-          const aggregateIntent = rule.intentType === 'list_symbols' || rule.intentType === 'stats' || rule.intentType === 'analytics' || rule.intentType === 'list_projects' || rule.intentType === 'code_review';
+          const aggregateIntent = rule.intentType === 'list_symbols' || rule.intentType === 'stats' || rule.intentType === 'analytics' || rule.intentType === 'list_projects' || rule.intentType === 'code_review' || rule.intentType === 'recent_changes' || rule.intentType === 'prune_conventions' || rule.intentType === 'chunk_brief';
           const hasEntity = entities.symbolName || entities.filePath || entities.moduleName || entities.projectPath || entities.commitHash ||
                             entities.subType || (entities.filter && Object.keys(entities.filter).length > 0);
           const confidence = aggregateIntent || hasEntity ? 0.92 : 0.65;
@@ -759,6 +815,8 @@ export class PatternIntentEngine implements IntentEngine {
       'change_history', 'symbol_overview', 'list_symbols', 'stats',
       'analytics', 'type_relationships', 'code_review',
       'switch_project', 'list_projects',
+      'recent_changes', 'view_annotated', 'chunk_brief',
+      'confirm_reviewed', 'prune_conventions',
     ];
     return (valid as string[]).includes(type);
   }

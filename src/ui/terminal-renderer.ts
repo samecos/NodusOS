@@ -9,10 +9,13 @@ import type { Symbol, Reference, ReferenceKind, CallGraph, CallGraphNode, Projec
 import type { ImpactReport, ChangeRecord, TypeRelationship } from '../code-intel/code-intelligence.js';
 import type { SymbolMetric, ModuleCoupling, CallChain, TodoComment } from '../code-intel/code-analytics.js';
 import type { ReviewReport, ReviewComment } from '../code-review/code-reviewer.js';
+import type { BriefCard, Convention } from '../common/types.js';
+import type { DebtQueryResult } from '../understanding-debt/debt-engine.js';
 import { type NodusError, getDegradationSuggestion } from '../common/errors.js';
 import { readFileSnippet, renderSnippet } from './code-snippet.js';
 
 const BLUE = '\x1b[36m';
+const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
 const RED = '\x1b[31m';
@@ -59,6 +62,16 @@ export class TerminalRenderer implements UIRenderer {
         return this.renderTypeRelationships(result.root, result.relationships);
       case 'review_report':
         return this.renderReviewReport(result.report);
+      case 'debt_heatmap':
+        return this.renderDebtHeatmap(result.entries);
+      case 'annotated_view':
+        return result.output;
+      case 'brief_card':
+        return this.renderBriefCard(result.brief);
+      case 'conventions_list':
+        return this.renderConventionsList(result.conventions);
+      case 'confirmation':
+        return `${GREEN}${result.message}${RESET}`;
       default:
         return JSON.stringify(result, null, 2);
     }
@@ -570,6 +583,42 @@ export class TerminalRenderer implements UIRenderer {
       }
     }
     return out + '\n';
+  }
+
+  private renderDebtHeatmap(entries: DebtQueryResult[]): string {
+    if (entries.length === 0) return `${DIM}当前无理解债。${RESET}\n`;
+    let out = `${BOLD}理解债热力图${RESET}\n`;
+    for (const e of entries) {
+      const color = e.level === 'red' ? RED : e.level === 'yellow' ? YELLOW : GREEN;
+      const tag = e.confirmed ? `${GREEN}✓已审${RESET}` : e.examined ? `${YELLOW}○已看${RESET}` : `${RED}●未审${RESET}`;
+      out += `  ${color}●${RESET} ${e.name} ${DIM}(${e.file_path})${RESET} 债值 ${e.debt.toFixed(1)} ${tag}\n`;
+    }
+    return out;
+  }
+
+  private renderBriefCard(brief: BriefCard): string {
+    let out = `${BOLD}简报卡: ${brief.title}${RESET}\n`;
+    out += `  影响半径: ${brief.impact_radius}  风险: ${brief.risk_level}  测试覆盖: ${brief.test_coverage ? '是' : '否'}\n`;
+    out += `  改动符号: ${brief.symbols.map(s => `${s.name}(复杂度${s.complexity})`).join(', ')}\n`;
+    if (brief.complexity_hotspots.length > 0) {
+      out += `  复杂度热点: ${brief.complexity_hotspots.join(', ')}\n`;
+    }
+    if (brief.known_issues.length > 0) {
+      out += `  已知隐患: ${brief.known_issues.join('; ')}\n`;
+    }
+    if (brief.suggested_inspect_point) {
+      out += `  ${YELLOW}建议抽检: ${brief.suggested_inspect_point.file}:${brief.suggested_inspect_point.line}${RESET}\n`;
+    }
+    return out;
+  }
+
+  private renderConventionsList(conventions: Convention[]): string {
+    if (conventions.length === 0) return `${DIM}暂无约定。${RESET}\n`;
+    let out = `${BOLD}项目约定${RESET}\n`;
+    for (const c of conventions) {
+      out += `  ${CYAN}${c.tag}${RESET}: ${c.pattern_desc} (${c.occurrences} 次)\n`;
+    }
+    return out;
   }
 
   private renderNodusErrorCard(error: NodusError, module: string): string {

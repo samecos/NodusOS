@@ -4,7 +4,7 @@
 // ============================================================
 
 import { NodusError, EnvError } from '../common/errors.js';
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SimpleEventBus } from './event-bus.impl.js';
 import { SqliteKnowledgeStore } from '../store/knowledge-store.impl.js';
@@ -20,6 +20,12 @@ import { TerminalRenderer } from '../ui/terminal-renderer.js';
 import { QueryCache } from './query-cache.js';
 import { RecommendationEngine } from './recommendation-engine.js';
 import { DefaultDeviceSync } from '../sync/device-sync.impl.js';
+import { DefaultChangeSensor } from '../change-sensor/change-sensor.impl.js';
+import { DebtEngineImpl } from '../understanding-debt/debt-engine.impl.js';
+import { SemanticChunkerImpl } from '../semantic-chunk/semantic-chunker.impl.js';
+import { AlignmentFlywheelImpl } from '../alignment/alignment-flywheel.impl.js';
+import { NodusMdEmitter } from '../alignment/emitters/nodus-md-emitter.js';
+import { renderAnnotatedView } from '../overlay/annotated-view.js';
 import type { EventBus } from './event-bus.js';
 import type { DeviceSync } from '../sync/device-sync.js';
 import { createErrorCard, type UIRenderer, type BreathLightState, type HistoryItem, type RecommendationItem } from '../ui/ui-renderer.js';
@@ -32,9 +38,17 @@ import type { IntentEngine, QueryIntent } from '../intent/intent-engine.js';
 import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { VoicePipeline } from '../voice/voice-pipeline.js';
 import type { ConfigManager, NodusConfig } from '../common/config.js';
-import { basename } from 'node:path';
+import { basename, resolve } from 'node:path';
 
 export { type NodusConfig } from '../common/config.js';
+
+// ANSI 颜色常量 — 用于理解层内联输出
+const RED = '\x1b[31m';
+const YELLOW = '\x1b[33m';
+const GREEN = '\x1b[32m';
+const DIM = '\x1b[2m';
+const CYAN = '\x1b[36m';
+const RESET = '\x1b[0m';
 
 export class NodusShell {
   readonly eventBus: EventBus;
@@ -48,6 +62,10 @@ export class NodusShell {
   readonly voicePipeline: VoicePipeline;
   readonly uiRenderer: UIRenderer;
   readonly deviceSync: DeviceSync;
+  readonly changeSensor: DefaultChangeSensor;
+  readonly debtEngine: DebtEngineImpl;
+  readonly chunker: SemanticChunkerImpl;
+  readonly flywheel: AlignmentFlywheelImpl;
 
   private configManager: ConfigManager;
   private config: NodusConfig;
@@ -90,6 +108,16 @@ export class NodusShell {
     this.queryCache = new QueryCache();
     this.recommendationEngine = new RecommendationEngine(this.store, this.contextMgr);
     this.deviceSync = new DefaultDeviceSync(this.store);
+
+    // Phase 5: 理解层
+    this.changeSensor = new DefaultChangeSensor(this.gitIntel);
+    this.debtEngine = new DebtEngineImpl(this.store);
+    this.chunker = new SemanticChunkerImpl();
+    this.flywheel = new AlignmentFlywheelImpl(this.store, [new NodusMdEmitter()]);
+    this.modules.set('change_sensor', this.changeSensor);
+    this.modules.set('debt_engine', this.debtEngine);
+    this.modules.set('chunker', this.chunker);
+    this.modules.set('flywheel', this.flywheel);
 
     // 注册模块到 registry
     this.modules.set('store', this.store);
@@ -384,6 +412,91 @@ export class NodusShell {
         const list = this.listProjects();
         this.setBreathLight('idle');
         return this.renderProjectList(list);
+      }
+
+      // 理解层意图拦截
+      if (intent.intentType === 'recent_changes') {
+        const projectRoot = this.config.projectPaths[0] ?? '.';
+        const batch = await this.changeSensor.detect(projectRoot);
+        if (!batch) {
+          this.setBreathLight('idle');
+          return `${DIM}没有检测到未提交的变更。${RESET}\n`;
+        }
+        await this.debtEngine.recompute(batch);
+        const chunks = this.chunker.chunk(batch);
+        const briefs = chunks.map(c => this.chunker.brief(c, batch));
+        const topDebts = this.debtEngine.getTopDebt(20);
+        let out = this.uiRenderer.render({ kind: 'debt_heatmap', entries: topDebts });
+        out += `\n${DIM}── ${chunks.length} 个语义块 ──${RESET}\n`;
+        for (const b of briefs) {
+          out += `  ${CYAN}[${b.chunk_id}]${RESET} ${b.title} · 风险 ${b.risk_level}`;
+          if (b.suggested_inspect_point) {
+            out += ` ${DIM}→ ${b.suggested_inspect_point.file}:${b.suggested_inspect_point.line}${RESET}`;
+          }
+          out += '\n';
+        }
+        this.queryCache.set(cacheKey, out);
+        this.setBreathLight('idle');
+        return out;
+      }
+
+      if (intent.intentType === 'view_annotated') {
+        const filePath = intent.entities.filePath ?? '';
+        const projectRoot = this.config.projectPaths[0] ?? '.';
+        const fullPath = resolve(projectRoot, filePath);
+        let code = '';
+        try { code = readFileSync(fullPath, 'utf-8'); } catch {
+          this.setBreathLight('idle');
+          return `${RED}无法读取文件: ${filePath}${RESET}\n`;
+        }
+        const debts = this.debtEngine.getDebtByFile(filePath);
+        const output = renderAnnotatedView(filePath, code, debts, []);
+        const result = { kind: 'annotated_view' as const, filePath, content: code, output };
+        this.setBreathLight('idle');
+        return this.uiRenderer.render(result);
+      }
+
+      if (intent.intentType === 'chunk_brief') {
+        const projectRoot = this.config.projectPaths[0] ?? '.';
+        const batch = await this.changeSensor.detect(projectRoot);
+        if (!batch) {
+          this.setBreathLight('idle');
+          return `${DIM}无变更。${RESET}\n`;
+        }
+        const chunks = this.chunker.chunk(batch);
+        const idx = intent.entities.subType
+          ? parseInt(intent.entities.subType.replace('chunk-', ''), 10)
+          : 0;
+        const chunk = chunks[idx] ?? chunks[0];
+        if (!chunk) {
+          this.setBreathLight('idle');
+          return `${DIM}无语义块。${RESET}\n`;
+        }
+        const brief = this.chunker.brief(chunk, batch);
+        this.setBreathLight('idle');
+        return this.uiRenderer.render({ kind: 'brief_card', brief });
+      }
+
+      if (intent.intentType === 'confirm_reviewed') {
+        const symbolName = intent.entities.symbolName ?? '';
+        if (!symbolName) {
+          this.setBreathLight('idle');
+          return `${YELLOW}请指定要确认的符号名。${RESET}\n`;
+        }
+        this.debtEngine.confirmReviewed(symbolName);
+        this.setBreathLight('idle');
+        return this.uiRenderer.render({ kind: 'confirmation', message: `已确认审查: ${symbolName}（债值清零）` });
+      }
+
+      if (intent.intentType === 'prune_conventions') {
+        const tag = intent.entities.symbolName ?? '';
+        if (!tag) {
+          this.setBreathLight('idle');
+          return this.uiRenderer.render({ kind: 'conventions_list', conventions: this.flywheel.listConventions() });
+        }
+        const deleted = this.flywheel.prune(tag);
+        this.setBreathLight('idle');
+        return this.uiRenderer.render({ kind: 'confirmation', message: deleted ? `已删除约定: ${tag}` : `未找到约定: ${tag}` });
       }
 
       this.contextMgr.recordQuery(text, intent.intentType);

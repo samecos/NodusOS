@@ -96,7 +96,12 @@ export type QueryResult =
   | { kind: 'stats_report'; stats: StatsReport }
   | { kind: 'change_heat'; files: { filePath: string; changeCount: number }[] }
   | { kind: 'type_relationship_list'; root: Symbol; relationships: TypeRelationship[] }
-  | { kind: 'review_report'; report: ReviewReport };
+  | { kind: 'review_report'; report: ReviewReport }
+  | { kind: 'debt_heatmap'; entries: import('../understanding-debt/debt-engine.js').DebtQueryResult[] }
+  | { kind: 'annotated_view'; filePath: string; content: string; output: string }
+  | { kind: 'brief_card'; brief: import('../common/types.js').BriefCard }
+  | { kind: 'conventions_list'; conventions: import('../common/types.js').Convention[] }
+  | { kind: 'confirmation'; message: string };
 
 // ---- Main interface ----
 

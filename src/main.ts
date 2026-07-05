@@ -92,6 +92,8 @@ async function main() {
   /switch <项目路径>   切换到指定项目
   /list-projects       列出所有已配置项目
   /sync                导出同步数据（JSON）
+  /confirm <符号>      确认符号已审查（债值清零）
+  /prune [标签]        删除过时约定（无参数则列出约定）
   /quit 或 /exit       退出 Nodus
 
 直接输入自然语言即可查询，例如：
@@ -183,6 +185,24 @@ async function main() {
       } catch (err) {
         console.error('导出同步数据失败:', err instanceof Error ? err.message : String(err));
       }
+      continue;
+    }
+
+    // /confirm <symbol> 命令
+    if (input.startsWith('/confirm ')) {
+      const symbol = input.slice('/confirm '.length).trim();
+      if (symbol) {
+        const output = await shell.handleQueryFormatted(`/confirm ${symbol}`);
+        console.log(output);
+      }
+      continue;
+    }
+
+    // /prune [tag] 命令
+    if (input === '/prune' || input.startsWith('/prune ')) {
+      const tag = input.startsWith('/prune ') ? input.slice('/prune '.length).trim() : '';
+      const output = await shell.handleQueryFormatted(tag ? `/prune ${tag}` : '列出约定');
+      console.log(output);
       continue;
     }
 
