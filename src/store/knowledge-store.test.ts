@@ -575,4 +575,72 @@ describe('KnowledgeStore', () => {
       expect(store.annotationGet(id)).toBeUndefined();
     });
   });
+
+  // ==========================================================
+  // TC-UT-KS-DE-001 ~ TC-UT-KS-CV-001: 理解层持久化
+  // ==========================================================
+  describe('understanding layer', () => {
+    // TC-UT-KS-DE-001: 理解债 upsert + get
+    it('TC-UT-KS-DE-001: should upsert and get debt entry', () => {
+      store.debtUpsert({
+        symbol_id: 'sym-1', file_path: 'src/a.ts', debt: 3.5,
+        change_recency: 2.0, difficulty: 0.8, examined_at: null, confirmed_at: null,
+        updated_at: Date.now(),
+      });
+      const entry = store.debtGet('sym-1');
+      expect(entry).toBeDefined();
+      expect(entry!.debt).toBe(3.5);
+      expect(entry!.file_path).toBe('src/a.ts');
+    });
+
+    // TC-UT-KS-DE-002: 确认后债值清零
+    it('TC-UT-KS-DE-002: should clear debt on confirmed', () => {
+      store.debtUpsert({
+        symbol_id: 'sym-2', file_path: 'src/b.ts', debt: 4.0,
+        change_recency: 2.0, difficulty: 0.9, examined_at: null, confirmed_at: null,
+        updated_at: Date.now(),
+      });
+      store.debtUpdateConfirmed('sym-2', Date.now());
+      const entry = store.debtGet('sym-2');
+      expect(entry!.debt).toBe(0);
+      expect(entry!.confirmed_at).not.toBeNull();
+    });
+
+    // TC-UT-KS-DE-003: 按文件查询 + top 查询
+    it('TC-UT-KS-DE-003: should query by file and top', () => {
+      store.debtUpsert({ symbol_id: 's1', file_path: 'f.ts', debt: 1.0, change_recency: 1, difficulty: 0.5, examined_at: null, confirmed_at: null, updated_at: Date.now() });
+      store.debtUpsert({ symbol_id: 's2', file_path: 'f.ts', debt: 4.0, change_recency: 2, difficulty: 0.9, examined_at: null, confirmed_at: null, updated_at: Date.now() });
+      store.debtUpsert({ symbol_id: 's3', file_path: 'g.ts', debt: 2.0, change_recency: 1, difficulty: 0.7, examined_at: null, confirmed_at: null, updated_at: Date.now() });
+      expect(store.debtGetByFile('f.ts')).toHaveLength(2);
+      const top = store.debtGetTop(2);
+      expect(top[0]!.debt).toBeGreaterThanOrEqual(top[1]!.debt);
+    });
+
+    // TC-UT-KS-CA-001: 代码修正标注记录 + 查询
+    it('TC-UT-KS-CA-001: should record and list code annotations', () => {
+      const id = store.codeAnnotationRecord({
+        ai_generated_code: 'const x = f();', human_modified_code: 'const x = f();\nif (!x) return;',
+        diff: '+if (!x) return;', symbols_involved: '["sym-1"]', annotation_tags: '["add_null_check"]',
+        chunk_id: 'chunk-1', brief_field_hits: '["impact_radius"]', action: 'pass',
+        debt_at_review: 3.2, created_at: new Date().toISOString(),
+      });
+      expect(id).toBeGreaterThan(0);
+      const list = store.codeAnnotationList();
+      expect(list).toHaveLength(1);
+      expect(list[0]!.annotation_tags).toContain('add_null_check');
+    });
+
+    // TC-UT-KS-CV-001: 约定 upsert + increment + list
+    it('TC-UT-KS-CV-001: should upsert, increment and list conventions', () => {
+      store.conventionUpsert('add_null_check', '调用外部服务后未判空', 'PaymentService.charge');
+      store.conventionIncrement('add_null_check', null);
+      store.conventionIncrement('add_null_check', null);
+      const conv = store.conventionGet('add_null_check');
+      expect(conv).toBeDefined();
+      expect(conv!.occurrences).toBe(2);
+      expect(store.conventionList()).toHaveLength(1);
+      expect(store.conventionDelete('add_null_check')).toBe(true);
+      expect(store.conventionGet('add_null_check')).toBeUndefined();
+    });
+  });
 });

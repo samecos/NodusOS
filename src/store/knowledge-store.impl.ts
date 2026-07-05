@@ -12,6 +12,7 @@ import type {
   PackageManager,
   FileIndexState, RuntimeRequirement, Dependency,
   SessionState, AnnotationEntry,
+  DebtEntry, CodeAnnotationRecord, Convention, ReviewAction,
 } from '../common/types.js';
 import type { KnowledgeStore } from './knowledge-store.js';
 import { MigrationRunner } from './migrations.js';
@@ -575,6 +576,163 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
       user_rating: row.user_rating as number | null,
       user_correction: row.user_correction as string | null,
       created_at: row.created_at as string,
+    };
+  }
+
+  // ========== 理解债 ==========
+
+  debtUpsert(entry: DebtEntry): void {
+    this.db.prepare(`
+      INSERT OR REPLACE INTO debt_entries
+        (symbol_id, file_path, debt, change_recency, difficulty, examined_at, confirmed_at, updated_at)
+      VALUES (@symbol_id, @file_path, @debt, @change_recency, @difficulty, @examined_at, @confirmed_at, @updated_at)
+    `).run({
+      symbol_id: entry.symbol_id,
+      file_path: entry.file_path,
+      debt: entry.debt,
+      change_recency: entry.change_recency,
+      difficulty: entry.difficulty,
+      examined_at: entry.examined_at,
+      confirmed_at: entry.confirmed_at,
+      updated_at: entry.updated_at,
+    });
+  }
+
+  debtGet(symbolId: string): DebtEntry | undefined {
+    const row = this.db.prepare('SELECT * FROM debt_entries WHERE symbol_id = ?').get(symbolId) as Record<string, unknown> | undefined;
+    return row ? this.rowToDebtEntry(row) : undefined;
+  }
+
+  debtGetByFile(filePath: string): DebtEntry[] {
+    const rows = this.db.prepare('SELECT * FROM debt_entries WHERE file_path = ? ORDER BY debt DESC').all(filePath) as Record<string, unknown>[];
+    return rows.map(r => this.rowToDebtEntry(r));
+  }
+
+  debtGetTop(limit: number): DebtEntry[] {
+    const rows = this.db.prepare('SELECT * FROM debt_entries ORDER BY debt DESC LIMIT ?').all(limit) as Record<string, unknown>[];
+    return rows.map(r => this.rowToDebtEntry(r));
+  }
+
+  debtUpdateExamined(symbolId: string, examinedAt: number): void {
+    this.db.prepare('UPDATE debt_entries SET examined_at = ?, updated_at = ? WHERE symbol_id = ?')
+      .run(examinedAt, Date.now(), symbolId);
+  }
+
+  debtUpdateConfirmed(symbolId: string, confirmedAt: number): void {
+    this.db.prepare('UPDATE debt_entries SET confirmed_at = ?, debt = 0, updated_at = ? WHERE symbol_id = ?')
+      .run(confirmedAt, Date.now(), symbolId);
+  }
+
+  debtDecayAll(decayFactor: number): number {
+    const result = this.db.prepare('UPDATE debt_entries SET change_recency = change_recency * ?, updated_at = ?')
+      .run(decayFactor, Date.now());
+    return result.changes;
+  }
+
+  debtAll(): DebtEntry[] {
+    const rows = this.db.prepare('SELECT * FROM debt_entries').all() as Record<string, unknown>[];
+    return rows.map(r => this.rowToDebtEntry(r));
+  }
+
+  private rowToDebtEntry(row: Record<string, unknown>): DebtEntry {
+    return {
+      symbol_id: row.symbol_id as string,
+      file_path: row.file_path as string,
+      debt: row.debt as number,
+      change_recency: row.change_recency as number,
+      difficulty: row.difficulty as number,
+      examined_at: row.examined_at as number | null,
+      confirmed_at: row.confirmed_at as number | null,
+      updated_at: row.updated_at as number,
+    };
+  }
+
+  // ========== 代码修正标注 ==========
+
+  codeAnnotationRecord(entry: Omit<CodeAnnotationRecord, 'id'>): number {
+    const result = this.db.prepare(`
+      INSERT INTO code_annotations
+        (ai_generated_code, human_modified_code, diff, symbols_involved, annotation_tags,
+         chunk_id, brief_field_hits, action, debt_at_review, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      entry.ai_generated_code,
+      entry.human_modified_code,
+      entry.diff,
+      entry.symbols_involved,
+      entry.annotation_tags,
+      entry.chunk_id,
+      entry.brief_field_hits,
+      entry.action,
+      entry.debt_at_review,
+      entry.created_at,
+    );
+    return Number(result.lastInsertRowid);
+  }
+
+  codeAnnotationList(limit: number = 50): CodeAnnotationRecord[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM code_annotations ORDER BY created_at DESC, id DESC LIMIT ?'
+    ).all(limit) as Record<string, unknown>[];
+    return rows.map(r => this.rowToCodeAnnotation(r));
+  }
+
+  private rowToCodeAnnotation(row: Record<string, unknown>): CodeAnnotationRecord {
+    return {
+      id: row.id as number,
+      ai_generated_code: row.ai_generated_code as string,
+      human_modified_code: row.human_modified_code as string,
+      diff: row.diff as string,
+      symbols_involved: row.symbols_involved as string,
+      annotation_tags: row.annotation_tags as string,
+      chunk_id: row.chunk_id as string | null,
+      brief_field_hits: row.brief_field_hits as string | null,
+      action: row.action as ReviewAction,
+      debt_at_review: row.debt_at_review as number | null,
+      created_at: row.created_at as string,
+    };
+  }
+
+  // ========== 约定 ==========
+
+  conventionUpsert(tag: string, patternDesc: string, symbolExample: string | null): void {
+    this.db.prepare(`
+      INSERT INTO conventions (tag, pattern_desc, occurrences, symbol_examples, last_seen)
+      VALUES (?, ?, 0, ?, ?)
+      ON CONFLICT(tag) DO UPDATE SET pattern_desc = excluded.pattern_desc, symbol_examples = excluded.symbol_examples
+    `).run(tag, patternDesc, symbolExample, Date.now());
+  }
+
+  conventionGet(tag: string): Convention | undefined {
+    const row = this.db.prepare('SELECT * FROM conventions WHERE tag = ?').get(tag) as Record<string, unknown> | undefined;
+    return row ? this.rowToConvention(row) : undefined;
+  }
+
+  conventionList(): Convention[] {
+    const rows = this.db.prepare('SELECT * FROM conventions ORDER BY occurrences DESC').all() as Record<string, unknown>[];
+    return rows.map(r => this.rowToConvention(r));
+  }
+
+  conventionDelete(tag: string): boolean {
+    const result = this.db.prepare('DELETE FROM conventions WHERE tag = ?').run(tag);
+    return result.changes > 0;
+  }
+
+  conventionIncrement(tag: string, symbolExample: string | null): void {
+    this.db.prepare(`
+      UPDATE conventions SET occurrences = occurrences + 1, last_seen = ?
+      ${symbolExample ? ', symbol_examples = ?' : ''}
+      WHERE tag = ?
+    `).run(...(symbolExample ? [Date.now(), symbolExample, tag] : [Date.now(), tag]));
+  }
+
+  private rowToConvention(row: Record<string, unknown>): Convention {
+    return {
+      tag: row.tag as string,
+      pattern_desc: row.pattern_desc as string,
+      occurrences: row.occurrences as number,
+      symbol_examples: row.symbol_examples as string | null,
+      last_seen: row.last_seen as number,
     };
   }
 

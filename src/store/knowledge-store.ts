@@ -10,6 +10,7 @@ import type {
   ProjectMeta, QueryHistoryEntry,
   FileIndexState, RuntimeRequirement, Dependency,
   SessionState, AnnotationEntry,
+  DebtEntry, CodeAnnotationRecord, Convention,
 } from '../common/types.js';
 
 export interface KnowledgeStore {
@@ -82,6 +83,27 @@ export interface KnowledgeStore {
   annotationList(limit?: number): AnnotationEntry[];
   annotationUpdate(id: number, updates: Partial<Omit<AnnotationEntry, 'id' | 'created_at'>>): boolean;
   annotationDelete(id: number): boolean;
+
+  // ---- 理解债 ----
+  debtUpsert(entry: DebtEntry): void;
+  debtGet(symbolId: string): DebtEntry | undefined;
+  debtGetByFile(filePath: string): DebtEntry[];
+  debtGetTop(limit: number): DebtEntry[];
+  debtUpdateExamined(symbolId: string, examinedAt: number): void;
+  debtUpdateConfirmed(symbolId: string, confirmedAt: number): void;
+  debtDecayAll(decayFactor: number): number;
+  debtAll(): DebtEntry[];
+
+  // ---- 代码修正标注 ----
+  codeAnnotationRecord(entry: Omit<CodeAnnotationRecord, 'id'>): number;
+  codeAnnotationList(limit?: number): CodeAnnotationRecord[];
+
+  // ---- 约定 ----
+  conventionUpsert(tag: string, patternDesc: string, symbolExample: string | null): void;
+  conventionGet(tag: string): Convention | undefined;
+  conventionList(): Convention[];
+  conventionDelete(tag: string): boolean;
+  conventionIncrement(tag: string, symbolExample: string | null): void;
 
   // ---- 生命周期 ----
   close(): void;
