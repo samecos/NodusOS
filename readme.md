@@ -653,6 +653,19 @@ npm test
 ### P1.5 — 理解层（人与 AI 代码产出对齐）
 - [x] R4.1 理解层 P1（ChangeSensor + DebtEngine + SemanticChunker + AlignmentFlywheel + AnnotatedView + REPL 接入）
 
+#### P2 — 理解层增强（待实现）
+- [ ] R4.2 编辑器叠加层（LSP server + VSCode 扩展，理解信息就地长在代码上）
+- [ ] R4.3 飞轮自动捕获（FileWatcher + 保存静默窗口 → ChangeSensor.start → 自动 capture，无需手动触发）
+- [ ] R4.4 债值校准（接入 ImpactAnalysis 替换硬编码 blastRadius；ChangeSensor 存真实 git diff hunk 替换声明行扫描，让热力图有梯度）
+- [ ] R4.5 调用图连通分量聚类（SemanticChunker 从目录聚类升级为调用图诱导子图连通分量）
+- [ ] R4.6 DebtEngine 权重自校准（攒够 50 条 `(debt_at_review, did_modify)` 配对后重拟合公式权重）
+- [ ] R4.7 每日衰减 cron（`debtDecayAll` 定时执行，防僵尸红区）
+- [ ] R4.8 CursorRules / AgentsMd 发射器（PluggableEmitter 扩展，检测到对应 AI 工具时自动发射约定文件）
+- [ ] R4.9 跨批次语义块合并（连续多批变更的语义块关联追踪）
+- [ ] R4.10 LLM 提炼通用 conventions（从带溯源的具体模式升级为抽象规则）
+- [ ] R4.11 团队 conventions 共享（`.nodus/conventions.md` 纳入团队协作模块）
+- [ ] R4.12 杂项清理（`/list` 补全理解层能力、CYAN/BLUE 去重、`debtAll` 死代码清理、新 QueryResult 变种加入卡片白名单）
+
 ### 历史已完成（MVP 阶段）
 - [x] 补齐数据库 Schema：`file_index_state` / `project_runtimes` / `project_dependencies` 表
 - [x] 补齐数据库索引（`idx_symbols_language` / `parent` / `file_kind`、`idx_refs_kind`、`idx_file_state_checksum`、`idx_query_hist_intent`）
