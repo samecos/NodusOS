@@ -203,7 +203,12 @@ export type IntentType =
   | 'type_relationships'
   | 'code_review'
   | 'switch_project'
-  | 'list_projects';
+  | 'list_projects'
+  | 'recent_changes'
+  | 'view_annotated'
+  | 'chunk_brief'
+  | 'confirm_reviewed'
+  | 'prune_conventions';
 
 /** 变更范围 */
 export type ChangeScope =
@@ -261,4 +266,95 @@ export interface CodeChange {
   old_code?: string;
   new_code?: string;
   diff_text: string;
+}
+
+// ============================================================
+// 理解层类型 — 人与 AI 代码产出对齐
+// ============================================================
+
+/** 审查动作 */
+export type ReviewAction = 'pass' | 'dig' | 'reject';
+
+/** 变更批次中一个被改动的符号快照 */
+export interface ChangedSymbol {
+  symbol_id: SymbolId;
+  name: string;
+  file_path: string;
+  line_start: number;
+  line_end: number;
+  /** 该符号在这批变更中的 diff 文本 */
+  diff_text: string;
+}
+
+/** 变更批次 — ChangeSensor 产出的原子单位 */
+export interface ChangeBatch {
+  /** 唯一标识（时间戳 + 文件数哈希） */
+  id: string;
+  /** 项目根路径 */
+  project_root: string;
+  /** 批次检测时间（ISO 8601） */
+  detected_at: string;
+  /** 受影响文件列表 */
+  files: string[];
+  /** 受影响符号列表 */
+  symbols: ChangedSymbol[];
+  /** 工作树快照（文件路径 → 内容），代表"AI 刚交付"状态 */
+  snapshot: Record<string, string>;
+}
+
+/** 理解债条目 */
+export interface DebtEntry {
+  symbol_id: string;
+  file_path: string;
+  debt: number;
+  change_recency: number;
+  difficulty: number;
+  examined_at: number | null;
+  confirmed_at: number | null;
+  updated_at: number;
+}
+
+/** 代码修正标注记录（区别于意图反馈的 AnnotationEntry） */
+export interface CodeAnnotationRecord {
+  id?: number;
+  ai_generated_code: string;
+  human_modified_code: string;
+  diff: string;
+  symbols_involved: string;
+  annotation_tags: string;
+  chunk_id: string | null;
+  brief_field_hits: string | null;
+  action: ReviewAction;
+  debt_at_review: number | null;
+  created_at: string;
+}
+
+/** 约定模式 */
+export interface Convention {
+  tag: string;
+  pattern_desc: string;
+  occurrences: number;
+  symbol_examples: string | null;
+  last_seen: number;
+}
+
+/** 语义块 */
+export interface SemanticChunk {
+  id: string;
+  symbols: ChangedSymbol[];
+  files: string[];
+  title: string;
+}
+
+/** 简报卡 */
+export interface BriefCard {
+  chunk_id: string;
+  title: string;
+  symbols: { name: string; complexity: number }[];
+  impact_radius: number;
+  risk_level: RiskLevel;
+  complexity_hotspots: string[];
+  test_coverage: boolean;
+  known_issues: string[];
+  suggested_inspect_point: { file: string; line: number } | null;
 }
