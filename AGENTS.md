@@ -15,11 +15,12 @@
 1. **语义代码索引（脑）**：基于 tree-sitter 抽取符号、引用、调用图、类型关系与代码统计。
 2. **代码分析**：死代码、模块耦合、变更热点、最长调用链、TODO 扫描、复杂度等。
 3. **代码评审**：基于 Git diff + 符号索引生成风险/风格/bug 分级意见。
-4. **代码生成与重构**：生成 git diff 形式的重构建议（已模块实现，部分尚未接入 REPL 主流程）。
+4. **代码生成与重构**：生成 git diff 形式的重构建议（已模块实现，尚未接入 REPL 主流程）。
 5. **环境托管（手）**：自动检测项目类型、运行时、依赖与外部服务，并尝试安装。
 6. **学习与同步**：查询历史、反馈学习、多设备同步、团队协作索引共享。
+7. **理解层（人与 AI 代码产出对齐）**：作为旁观者监听 Git 变更，计算"理解债"热力图，按语义块生成简报卡，并捕获人工修正反哺为项目约定（`.nodus/conventions.md`），让 AI 工具越用越准。
 
-> 重要：本项目不是编辑器替代品，定位是与 VSCode 等工具共存的“OS 层信息整合器”。
+> 重要：本项目不是编辑器替代品，定位是与 VSCode 等工具共存的"OS 层信息整合器"。
 
 ---
 
@@ -76,6 +77,8 @@ auth模块最近一周改了什么
 | `/switch <项目路径>` | 切换到指定项目 |
 | `/list-projects` | 列出所有已配置的项目 |
 | `/sync` | 导出多设备同步数据（JSON） |
+| `/confirm <符号>` | 确认符号已审查完成（理解债清零） |
+| `/prune [标签]` | 列出约定 / 删除指定约定（理解层飞轮） |
 | *(空行)* | 显示推荐查询，输入序号即可执行 |
 
 ### 2.2 原生依赖与兼容性
@@ -124,7 +127,7 @@ NodusOS/
 src/
 ├── main.ts                         # CLI 入口 / REPL 主循环
 ├── common/                         # 共享基础设施
-│   ├── types.ts                    # 核心共享类型（Symbol、Reference、CallGraph 等）
+│   ├── types.ts                    # 核心共享类型（Symbol、Reference、CallGraph、理解层类型等）
 │   ├── config.ts                   # JSON 配置管理 + 热加载
 │   ├── errors.ts                   # 统一错误类型与降级建议
 │   ├── logger.ts                   # 文件日志系统
@@ -152,7 +155,7 @@ src/
 ├── store/                          # 数据持久化（SQLite + 迁移）
 │   ├── knowledge-store.ts          # 存储层接口
 │   ├── knowledge-store.impl.ts     # SqliteKnowledgeStore 实现
-│   ├── migrations.ts               # 数据库迁移系统
+│   ├── migrations.ts               # 数据库迁移系统（当前到 v6）
 │   ├── knowledge-store.test.ts
 │   └── migrations.test.ts
 │
@@ -216,6 +219,38 @@ src/
 │   ├── file-watcher.impl.ts
 │   └── file-watcher.test.ts
 │
+├── change-sensor/                  # 变更传感器 — 旁观监听 Git 工作树变更，打包 ChangeBatch
+│   ├── change-sensor.ts
+│   ├── change-sensor.impl.ts
+│   └── change-sensor.test.ts
+│
+├── understanding-debt/             # 理解债引擎 — 债值计算/持久化/两态（examined/confirmed）切换
+│   ├── debt-formula.ts             # 债值公式纯函数（debt = changeRecency × uncoveredRatio × difficulty）
+│   ├── debt-engine.ts
+│   ├── debt-engine.impl.ts
+│   ├── debt-engine.test.ts
+│   └── alignment-integration.test.ts
+│
+├── semantic-chunk/                 # 语义切片 — 按模块目录聚类变更符号 + 生成简报卡
+│   ├── semantic-chunker.ts
+│   ├── brief-template.ts
+│   ├── semantic-chunker.impl.ts
+│   └── semantic-chunker.test.ts
+│
+├── alignment/                      # 对齐飞轮 — 捕获人工修正 → 分类 tag → 反哺 conventions
+│   ├── tag-classifier.ts           # diff → tag 启发式规则库（8 类）
+│   ├── conventions-emitter.ts      # PluggableEmitter 接口
+│   ├── alignment-flywheel.ts
+│   ├── alignment-flywheel.impl.ts
+│   ├── emitters/
+│   │   └── nodus-md-emitter.ts     # .nodus/conventions.md 发射器
+│   ├── tag-classifier.test.ts
+│   └── alignment-flywheel.test.ts
+│
+├── overlay/                        # 叠加层 — 带行级债值标注的代码视图（P1 终端 / P2 编辑器）
+│   ├── annotated-view.ts
+│   └── annotated-view.test.ts
+│
 ├── intent/                         # 意图引擎 — NLU 解析
 │   ├── intent-engine.ts            # 接口与类型
 │   ├── intent-engine.impl.ts       # PatternIntentEngine（正则 + 相似度回退）
@@ -262,8 +297,15 @@ src/
   ├── GitIntelligence（git CLI 封装）
   └── FileWatcher（fs.watch + 事件总线）
 
+理解层（人与 AI 代码产出对齐，旁观者，只读 Git/文件）
+  ├── ChangeSensor（变更传感器：检测 → ChangeBatch）
+  ├── DebtEngine（理解债：changeRecency × uncoveredRatio × difficulty 热力图）
+  ├── SemanticChunker（语义切片：目录聚类 + 简报卡）
+  ├── AlignmentFlywheel（修正捕获 → tag 分类 → conventions 反哺）
+  └── AnnotatedView（带债值标注的代码视图）
+
 数据层
-  └── SqliteKnowledgeStore（SQLite 持久化）
+  └── SqliteKnowledgeStore（SQLite 持久化 + 迁移系统）
 ```
 
 模块通信方式：
@@ -277,7 +319,7 @@ src/
 | 模块 | 接口 | 实现 | 单元测试 | 备注 |
 |------|------|------|----------|------|
 | ContextManager | ✅ | ✅ | ✅ | 完整可用 |
-| KnowledgeStore | ✅ | ✅ | ✅ | SQLite 持久化 + 迁移 |
+| KnowledgeStore | ✅ | ✅ | ✅ | SQLite 持久化 + 迁移（v1–v6） |
 | EventBus | ✅ | ✅ | ✅ | 完整可用 |
 | IntentEngine | ✅ | ✅ | ✅ | 主流程为 PatternIntentEngine；LocalMLIntentEngine 已实现但未接入默认流程 |
 | TerminalRenderer | ✅ | ✅ | ✅ | 完整可用 |
@@ -297,10 +339,17 @@ src/
 | QueryCache | ✅ | ✅ | ✅ | 5 分钟查询缓存 |
 | RecommendationEngine | ✅ | ✅ | ✅ | 上下文/高频/延续推荐 |
 | VoicePipeline | ✅ | ✅ | ✅ | 能量阈值唤醒 + 系统 TTS；实时 STT 为 stub |
+| ChangeSensor | ✅ | ✅ | ✅ | 已接入理解层 REPL 流程 |
+| DebtEngine | ✅ | ✅ | ✅ | 已接入理解层 REPL 流程 |
+| SemanticChunker | ✅ | ✅ | ✅ | 已接入理解层 REPL 流程 |
+| AlignmentFlywheel | ✅ | ✅ | ✅ | 已接入理解层 REPL 流程 |
+| AnnotatedView | n/a | ✅ | ✅ | 纯函数渲染，已接入 REPL |
 | NodusShell | ✅ | ✅ | ✅ | 生命周期与模块编排 |
 | ConfigManager | ✅ | ✅ | ✅ | JSON 配置 + 热加载 |
 | Logger | ✅ | ✅ | ✅ | 文件日志 |
 | Errors | ✅ | ✅ | ✅ | 统一错误 + 降级建议 |
+
+> 注：理解层 P1（ChangeSensor/DebtEngine/SemanticChunker/AlignmentFlywheel/AnnotatedView）已实现并接入 REPL。P2 增强（编辑器叠加层 LSP、飞轮自动捕获、债值校准、调用图聚类等）尚未实现，详见 `readme.md` 与 `docs/superpowers/` 下设计文档。
 
 ---
 
@@ -346,11 +395,11 @@ npm run run:pkg
 
 ### 4.1 当前测试结果
 
-实际运行 `npm test` 的最近一次结果：
+实际运行 `npm test` 的最近一次结果（38 个测试文件 / 459 个测试，全部通过，`npm run typecheck` 无报错）：
 
-- **测试文件**：31 个
-- **总测试数**：422 个
-- **通过**：422 个
+- **测试文件**：38 个
+- **总测试数**：459 个
+- **通过**：459 个
 - **失败**：0 个
 
 > 原生依赖在新平台上仍可能加载失败，导致相关测试无法运行，需先执行 `npm run rebuild:native`。
@@ -385,7 +434,7 @@ src/<module>/
 
 - 严格模式已开启（`"strict": true`）。
 - `verbatimModuleSyntax: true`：类型导入必须写 `import type { ... }`。
-- ESM + NodeNext 解析；`tsconfig.json` 中 `rootDir: src`，`outDir: dist`。
+- ESM + NodeNext 解析；`tsconfig.json` 中 `rootDir: src`，`outDir: dist`；`tsconfig.json` 用 `exclude: ["src/**/*.test.ts"]` 排除测试文件。
 - 不允许隐式 `any`；优先用 `unknown` 并收窄。
 - 导出的接口需带 JSDoc 注释。
 - 源码与注释主要使用**中文**。
@@ -395,6 +444,10 @@ src/<module>/
 - 代码注释、JSDoc、`readme.md` 及 `docs/` 下文档主要使用**中文**。
 - 接口文档（`ArchitecturalDesignPhase/04-API-Reference.md`）使用中文撰写但采用 Rust trait 风格描述。
 - 类型、变量、函数名等技术标识符保持英文。
+
+### 5.5 ESM 导入路径
+
+由于使用 `verbatimModuleSyntax` 与 NodeNext，所有相对导入必须带 `.js` 扩展名（即便源码是 `.ts`），例如 `import { SimpleEventBus } from './event-bus.impl.js';`。新增文件时务必遵循。
 
 ---
 
@@ -406,7 +459,7 @@ src/<module>/
 
 - `globals: true`：全局 `describe` / `it` / `expect`。
 - `environment: 'node'`。
-- 匹配 `src/**/*.test.ts`。
+- `include: ['src/**/*.test.ts']`。
 
 ### 6.2 测试文件约定
 
@@ -421,6 +474,7 @@ src/<module>/
 - `GitIntelligence` 测试会在临时目录 `git init` 真实仓库。
 - `ConfigManager` 测试使用临时配置文件并在结束时清理。
 - `EnvironmentManager` 测试会真实调用 `node --version` 等外部命令，但不会实际安装依赖（使用 mock 或 dry-run）。
+- 测试夹具位于 `tests/fixtures/`（如 `tiny-project`，一个最小 TypeScript 项目供集成测试使用）。
 
 ### 6.4 当前测试覆盖
 
@@ -431,24 +485,48 @@ src/<module>/
 - 编排与基础设施：`shell`、`event-bus`、`context`、`store`（含 migrations）、`query-cache`、`recommendation-engine`
 - 扩展能力：`code-gen`、`code-review`、`debug`、`collab`、`sync`
 - 外部集成：`env-mgr`、`git-intel`、`file-watcher`
+- 理解层：`change-sensor`、`understanding-debt`（含 `debt-engine` + `alignment-integration`）、`semantic-chunk`、`alignment`（含 `tag-classifier` + `flywheel`）、`overlay`
 - 界面与交互：`ui`、`intent`、`voice`
 
 ---
 
-## 7. 打包与部署
+## 7. 数据层与迁移
 
-### 7.1 一键打包
+### 7.1 SQLite 模式
 
-`npm run package` 会：
+`SqliteKnowledgeStore` 通过 `MigrationRunner` 管理 schema。迁移定义在 `src/store/migrations.ts`，当前到 v6：
+
+- **v1** `initial_schema`：`symbols`、`refs`、`callgraphs`、`projects`、`project_runtimes`、`project_dependencies`、`file_index_state`、`preferences`、`query_history`、`annotations` 及各类索引。
+- **v2** `add_session_state`：`session_state` 表（恢复项目/文件/光标位置）。
+- **v3** `add_annotations_table`：`annotations` 表（训练标注飞轮）。
+- **v4** `add_debt_entries`：`debt_entries` 表（理解债热力图）。
+- **v5** `add_code_annotations`：`code_annotations` 表（人工修正标注）。
+- **v6** `add_conventions`：`conventions` 表（对齐飞轮约定模式）。
+
+### 7.2 修改 schema 的约定
+
+新增或变更数据库表时，必须：
+
+1. 在 `MIGRATIONS` 数组追加一条 `{ version, name, up }`（version 递增）。
+2. 同步更新 `src/store/migrations.test.ts` 验证新迁移可应用。
+3. 在 `KnowledgeStore` 接口与实现中补充对应的读写方法。
+
+---
+
+## 8. 打包与部署
+
+### 8.1 一键打包
+
+`npm run package`（由 `scripts/package.js` 执行）会：
 
 1. 运行 `npm run build` 编译到 `dist/`。
 2. 清理并创建 `bundle/` 目录。
 3. 复制 `dist/` 到 `bundle/dist/`。
 4. 生成精简版 `bundle/package.json`（移除 devDependencies 与 scripts）。
 5. 在 `bundle/` 中执行 `npm install --omit=dev --no-audit --no-fund` 安装生产依赖。
-6. 生成 Unix / Windows 可执行入口：`bundle/nodus` 与 `bundle/nodus.cmd`。
+6. 生成 Unix（`bundle/nodus`，chmod 755）与 Windows（`bundle/nodus.cmd`）可执行入口。
 
-### 7.2 运行打包产物
+### 8.2 运行打包产物
 
 ```bash
 npm run run:pkg
@@ -462,9 +540,9 @@ node bundle/dist/main.js
 
 ---
 
-## 8. 安全与注意事项
+## 9. 安全与注意事项
 
-### 8.1 自动执行外部命令
+### 9.1 自动执行外部命令
 
 `EnvironmentManagerImpl` 会调用 `execSync` 执行真实的外部命令：
 
@@ -473,21 +551,29 @@ node bundle/dist/main.js
 - `docker compose up`、`redis-server`、`pg_ctl start` 等外部服务启动建议/命令。
 - 这些命令在项目根目录下运行，**会修改目标项目的文件系统**（创建 `node_modules` 等）。
 
-### 8.2 Git 操作
+### 9.2 Git 操作
 
-`GitIntelligenceImpl` 通过 `execSync('git ...')` 执行 git 命令，依赖项目目录已是 git 仓库。
+`GitIntelligenceImpl` 通过 `execSync('git ...')` 执行 git 命令，依赖项目目录已是 git 仓库。`ChangeSensor` 同样通过 Git（`git diff --name-only HEAD` + `git ls-files --others`）检测工作树变更，只读不写。
 
-### 8.3 数据目录
+### 9.3 数据目录
 
-`src/main.ts` 默认在 `~/.nodus/` 下创建：
+`src/main.ts` 默认在 `~/.nodus/` 下创建（用户级）：
 
-- SQLite 数据库 `nodus.db`
-- 配置文件 `config.json`
-- 反馈日志 `feedback.jsonl`
-- 日志目录 `logs/nodus-YYYY-MM-DD.log`
-- 本地 ML 意图模型 `ml-intent-model.json`
+| 路径 | 用途 |
+|------|------|
+| `~/.nodus/nodus.db` | SQLite 知识库 |
+| `~/.nodus/config.json` | 用户配置 |
+| `~/.nodus/logs/nodus-YYYY-MM-DD.log` | 运行日志 |
+| `~/.nodus/feedback.jsonl` | 用户反馈记录（意图学习闭环） |
+| `~/.nodus/ml-intent-model.json` | 本地轻量意图模型 |
 
-### 8.4 语音管线
+项目级数据写入目标项目根目录：
+
+| 路径 | 用途 |
+|------|------|
+| `.nodus/conventions.md` | 项目约定（对齐飞轮自动生成，反喂 AI 工具） |
+
+### 9.4 语音管线
 
 `SystemVoicePipeline` 使用系统命令播放 TTS：
 
@@ -497,11 +583,11 @@ node bundle/dist/main.js
 
 实时唤醒词 + STT 尚未完全实现，当前为能量阈值触发 + 接口 stub。
 
-### 8.5 文件监听
+### 9.5 文件监听
 
 `FileWatcherImpl` 使用 Node.js `fs.watch` 递归监听项目目录；变更会触发 `codeIntel.indexFile` 或数据库清理操作。
 
-### 8.6 代码安全
+### 9.6 代码安全
 
 - 不要在生产环境直接运行未知项目的 `npm install`。
 - 当前实现没有沙箱；解析器会读取项目内任意源码文件。
@@ -509,7 +595,7 @@ node bundle/dist/main.js
 
 ---
 
-## 9. 已知问题与限制
+## 10. 已知问题与限制
 
 1. **原生二进制兼容性**：`better-sqlite3` 与 `tree-sitter` 的预编译二进制在某些平台上会加载失败。当前开发环境已通过 `npm run rebuild:native` 解决，但新环境仍需先运行 `npm run check:native` 验证。
 2. **语音交互**：实时唤醒词 + STT 尚未完全实现，仅保留接口与基础 TTS。
@@ -517,14 +603,15 @@ node bundle/dist/main.js
 4. **代码解析精度**：tree-sitter 解析器已能抽取符号与基本引用，并支持跨文件引用解析、类型关系、模块耦合等，但复杂动态调用、eval、宏等场景仍有局限。
 5. **环境自动安装**：`installRuntime` 实际不会主动下载安装 Node/Python，而是检测现有运行时并打印提示；真正的全自动安装尚未实现。
 6. **部分新能力未接入 REPL**：`CodeGenerator`、`CrossDomainDebugger`、`TeamCollaboration` 已模块实现，但尚未通过自然语言在 REPL 主流程中触发；可通过编程方式调用。
+7. **理解层 P1 简化**：债值计算中 `blastRadius` 当前硬编码 0.5（新鲜变更 debt < 1.0），需多批次累积或接入 ImpactAnalysis 后才有梯度；聚类用目录代替调用图连通分量；飞轮自动捕获依赖 FileWatcher + 保存静默窗口，尚未接入，当前为被动触发。完整设计与 P2 待办见 `readme.md` 与 `docs/superpowers/specs/`。
 
 ---
 
-## 10. 设计原则（来自项目文档）
+## 11. 设计原则（来自项目文档）
 
 六个核心原则（非协商）：
 
-1. **意图驱动，而非指令驱动** —— 用户说“要什么”，系统决定“怎么做”。
+1. **意图驱动，而非指令驱动** —— 用户说"要什么"，系统决定"怎么做"。
 2. **语音优先，界面为辅** —— 80% 操作应闭眼完成。
 3. **系统适应人** —— 零学习成本，不同角色得到不同响应。
 4. **全局上下文，无边界调度** —— 数据不在 App 孤岛里。
@@ -535,13 +622,15 @@ node bundle/dist/main.js
 
 ---
 
-## 11. 给 AI Agent 的操作建议
+## 12. 给 AI Agent 的操作建议
 
 - 修改某个模块前，先阅读其 `<module>.ts` 接口定义，再看 `.impl.ts` 实现。
-- 保持“接口 + 实现 + 测试”三件套结构；通用类型优先放到 `src/common/types.ts`。
+- 保持"接口 + 实现 + 测试"三件套结构；通用类型优先放到 `src/common/types.ts`。
 - 测试用例建议沿用 `TC-UT-XXX-NNN` 编号风格。
 - 涉及 `execSync` 或外部命令的改动要特别谨慎，避免破坏用户环境。
 - 若你的工作涉及 `tree-sitter` 或 `better-sqlite3` 报错，先运行 `npm run check:native` 确认本地原生二进制可加载再继续。
-- 修改配置相关逻辑时，同步检查 `src/common/config.test.ts`；修改数据库 schema 时，同步更新 `src/store/migrations.ts` 与 `src/store/migrations.test.ts`。
+- 修改配置相关逻辑时，同步检查 `src/common/config.test.ts`；修改数据库 schema 时，同步更新 `src/store/migrations.ts` 与 `src/store/migrations.test.ts`（参考第 7 节）。
 - 新增语言解析器时，应通过 `src/code-intel/parsers/plugin-system.ts` 注册，并补充对应测试。
 - 修改 `NodusShell` 生命周期或事件路由时，同步检查 `src/shell/nodus-shell.test.ts` 与 `src/main.ts`。
+- 所有相对导入必须带 `.js` 扩展名（ESM + NodeNext + `verbatimModuleSyntax` 要求）。
+- 改完代码后跑 `npm run typecheck` 与 `npm test` 验证；前者检查类型，后者覆盖功能回归。
