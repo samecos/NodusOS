@@ -416,6 +416,7 @@ export class NodusShell {
 
       // 理解层意图拦截
       if (intent.intentType === 'recent_changes') {
+        this.contextMgr.recordQuery(text, intent.intentType);
         const projectRoot = this.config.projectPaths[0] ?? '.';
         const batch = await this.changeSensor.detect(projectRoot);
         if (!batch) {
@@ -441,6 +442,7 @@ export class NodusShell {
       }
 
       if (intent.intentType === 'view_annotated') {
+        this.contextMgr.recordQuery(text, intent.intentType);
         const filePath = intent.entities.filePath ?? '';
         const projectRoot = this.config.projectPaths[0] ?? '.';
         const fullPath = resolve(projectRoot, filePath);
@@ -457,6 +459,7 @@ export class NodusShell {
       }
 
       if (intent.intentType === 'chunk_brief') {
+        this.contextMgr.recordQuery(text, intent.intentType);
         const projectRoot = this.config.projectPaths[0] ?? '.';
         const batch = await this.changeSensor.detect(projectRoot);
         if (!batch) {
@@ -478,17 +481,27 @@ export class NodusShell {
       }
 
       if (intent.intentType === 'confirm_reviewed') {
+        this.contextMgr.recordQuery(text, intent.intentType);
         const symbolName = intent.entities.symbolName ?? '';
         if (!symbolName) {
           this.setBreathLight('idle');
           return `${YELLOW}请指定要确认的符号名。${RESET}\n`;
         }
-        this.debtEngine.confirmReviewed(symbolName);
+        // 通过名称查找 symbol_id（debt_entries 的 PK 格式为 file:symbolName）
+        const hit = this.debtEngine.getTopDebt(500).find(
+          d => d.name === symbolName || d.symbol_id.endsWith(':' + symbolName),
+        );
+        if (!hit) {
+          this.setBreathLight('idle');
+          return `${YELLOW}未找到符号: ${symbolName}${RESET}\n`;
+        }
+        this.debtEngine.confirmReviewed(hit.symbol_id);
         this.setBreathLight('idle');
-        return this.uiRenderer.render({ kind: 'confirmation', message: `已确认审查: ${symbolName}（债值清零）` });
+        return this.uiRenderer.render({ kind: 'confirmation', message: `已确认审查: ${hit.name}（债值清零）` });
       }
 
       if (intent.intentType === 'prune_conventions') {
+        this.contextMgr.recordQuery(text, intent.intentType);
         const tag = intent.entities.symbolName ?? '';
         if (!tag) {
           this.setBreathLight('idle');
