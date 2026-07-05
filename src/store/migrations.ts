@@ -185,6 +185,58 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_annotations_created_at ON annotations(created_at);
     `,
   },
+  {
+    version: 4,
+    name: 'add_debt_entries',
+    up: `
+      CREATE TABLE IF NOT EXISTS debt_entries (
+        symbol_id      TEXT PRIMARY KEY,
+        file_path      TEXT NOT NULL,
+        debt           REAL NOT NULL,
+        change_recency REAL NOT NULL,
+        difficulty     REAL NOT NULL,
+        examined_at    INTEGER,
+        confirmed_at   INTEGER,
+        updated_at     INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_debt_file ON debt_entries(file_path);
+      CREATE INDEX IF NOT EXISTS idx_debt_value ON debt_entries(debt DESC);
+    `,
+  },
+  {
+    version: 5,
+    name: 'add_code_annotations',
+    up: `
+      CREATE TABLE IF NOT EXISTS code_annotations (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        ai_generated_code   TEXT NOT NULL,
+        human_modified_code TEXT NOT NULL,
+        diff                TEXT NOT NULL,
+        symbols_involved    TEXT,
+        annotation_tags     TEXT,
+        chunk_id            TEXT,
+        brief_field_hits    TEXT,
+        action              TEXT NOT NULL,
+        debt_at_review      REAL,
+        created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_code_anno_tags ON code_annotations(annotation_tags);
+      CREATE INDEX IF NOT EXISTS idx_code_anno_symbol ON code_annotations(symbols_involved);
+    `,
+  },
+  {
+    version: 6,
+    name: 'add_conventions',
+    up: `
+      CREATE TABLE IF NOT EXISTS conventions (
+        tag             TEXT PRIMARY KEY,
+        pattern_desc    TEXT NOT NULL,
+        occurrences     INTEGER NOT NULL DEFAULT 0,
+        symbol_examples TEXT,
+        last_seen       INTEGER NOT NULL
+      );
+    `,
+  },
 ];
 
 export class MigrationRunner {
