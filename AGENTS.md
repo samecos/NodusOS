@@ -28,11 +28,11 @@
 
 | 层级 | 实际选用 | 说明 |
 |------|----------|------|
-| 运行时 | Node.js + TypeScript | `package.json` 要求 `>=20.0.0` |
+| 运行时 | Node.js + TypeScript | `package.json` 要求 `>=20.0.0`，开发使用 v22.22.3 |
 | 模块系统 | ESM | `package.json` 中 `"type": "module"`，`tsconfig.json` 用 `nodenext` |
 | 数据库 | SQLite via `better-sqlite3` | 本地嵌入式，无服务端 |
 | 代码解析 | `tree-sitter` + 各语言 grammar | 当前支持 TS/JS/Python；插件框架已支持更多语言扩展 |
-| 测试 | Vitest | 配置见 `vitest.config.ts` |
+| 测试 | Vitest v4 | 配置见 `vitest.config.ts` |
 | 类型检查 | `tsc --noEmit` | 严格模式已开启 |
 | 开发启动 | `tsx src/main.ts` | 见 `npm run dev` |
 | 包管理器 | npm（主要） | `package.json` 脚本使用 npm；`package-lock.json` 与 `pnpm-lock.yaml` 被 `.gitignore` 忽略 |
@@ -103,175 +103,97 @@ npm run check:native    # 再次验证
 
 ```
 NodusOS/
-├── src/                          # 源码
+├── src/                          # 源码（约 22,000 行 TypeScript）
 ├── dist/                         # TypeScript 编译产物（gitignored）
 ├── bundle/                       # 一键打包产物（gitignored）
 ├── tests/fixtures/               # 测试夹具（如 tiny-project）
 ├── scripts/                      # 构建/检测/打包辅助脚本
 ├── docs/                         # 产品/架构文档（中文）
-├── RequirementAnalysisPhase/     # 需求阶段文档
-├── ArchitecturalDesignPhase/     # 架构阶段文档
-├── TestDesignPhase/              # 测试设计文档
+│   └── superpowers/              # 设计规格与实施计划
+│       ├── specs/                # 功能规格说明
+│       └── plans/                # 实施计划与任务报告
+├── RequirementAnalysisPhase/     # 需求阶段文档（PRD, Wireframes, Flowcharts）
+├── ArchitecturalDesignPhase/     # 架构阶段文档（HLD, DDD, DB Schema, API, Roadmap）
+├── TestDesignPhase/              # 测试设计文档（Test Plan, Test Cases, Acceptance Criteria）
 ├── package.json
-├── package-lock.json             # 被 gitignore 忽略
-├── pnpm-lock.yaml                # 被 gitignore 忽略
 ├── tsconfig.json
 ├── vitest.config.ts
 ├── readme.md
 └── AGENTS.md
 ```
 
-### 3.2 `src/` 源码组织（按实际文件）
+### 3.2 `src/` 源码组织
 
 ```
 src/
-├── main.ts                         # CLI 入口 / REPL 主循环
-├── common/                         # 共享基础设施
+├── main.ts                         # CLI 入口 / REPL 主循环（245 行）
+├── common/                         # 共享基础设施（8 个 TS 文件）
 │   ├── types.ts                    # 核心共享类型（Symbol、Reference、CallGraph、理解层类型等）
 │   ├── config.ts                   # JSON 配置管理 + 热加载
 │   ├── errors.ts                   # 统一错误类型与降级建议
 │   ├── logger.ts                   # 文件日志系统
-│   ├── config.test.ts
-│   ├── errors.test.ts
-│   ├── logger.test.ts
-│   └── native-deps.test.ts         # 原生依赖加载测试（无对应 .ts 实现文件）
+│   └── *.test.ts                   # 对应测试文件
 │
-├── shell/                          # 外壳：事件总线 + 模块编排 + 缓存/推荐
+├── shell/                          # 外壳：事件总线 + 模块编排 + 缓存/推荐（9 个 TS 文件）
 │   ├── event-bus.ts                # 事件总线接口 + 标准事件类型
 │   ├── event-bus.impl.ts           # SimpleEventBus 实现
-│   ├── nodus-shell.ts              # NodusShell 主类，生命周期与事件路由
+│   ├── nodus-shell.ts              # NodusShell 主类（734 行），生命周期与事件路由
 │   ├── query-cache.ts              # 查询结果缓存
 │   ├── recommendation-engine.ts    # 查询推荐引擎
-│   ├── event-bus.test.ts
-│   ├── nodus-shell.test.ts
-│   ├── query-cache.test.ts
-│   └── recommendation-engine.test.ts
+│   └── *.test.ts                   # 对应测试文件
 │
-├── context/                        # 上下文追踪 — 项目、文件、光标、历史
-│   ├── context-manager.ts
-│   ├── context-manager.impl.ts
-│   └── context-manager.test.ts
-│
-├── store/                          # 数据持久化（SQLite + 迁移）
+├── context/                        # 上下文追踪 — 项目、文件、光标、历史（3 个 TS 文件）
+├── store/                          # 数据持久化（SQLite + 迁移，5 个 TS 文件）
 │   ├── knowledge-store.ts          # 存储层接口
 │   ├── knowledge-store.impl.ts     # SqliteKnowledgeStore 实现
-│   ├── migrations.ts               # 数据库迁移系统（当前到 v6）
-│   ├── knowledge-store.test.ts
-│   └── migrations.test.ts
+│   └── migrations.ts               # 数据库迁移系统（v1–v6）
 │
-├── code-intel/                     # 语义索引核心
+├── code-intel/                     # 语义索引核心（18 个 TS 文件）
 │   ├── code-intelligence.ts        # 主接口与查询结果类型
 │   ├── code-intelligence.impl.ts   # CodeIntelligenceImpl 实现
 │   ├── code-analytics.ts           # 代码库统计/分析接口
 │   ├── code-analytics.impl.ts      # CodeAnalyticsImpl 实现
 │   ├── reference-resolver.ts       # 跨文件引用解析
 │   ├── module-resolver.ts          # 模块路径解析（tsconfig paths / index re-export）
-│   ├── code-intelligence.test.ts
-│   ├── code-intelligence.integration.test.ts
-│   ├── code-analytics.test.ts
-│   ├── type-relationship.test.ts
-│   ├── reference-resolver.test.ts
-│   ├── module-resolver.test.ts
 │   └── parsers/
 │       ├── plugin-system.ts        # 语言解析器插件注册表
-│       ├── plugin-system.test.ts
 │       ├── typescript-parser.ts
 │       ├── python-parser.ts
 │       └── utils.ts
 │
-├── code-gen/                       # AI 代码生成与重构（diff/refactor）
-│   ├── code-generator.ts
-│   ├── code-generator.impl.ts
-│   └── code-generator.test.ts
+├── code-gen/                       # AI 代码生成与重构（3 个 TS 文件）
+├── code-review/                    # 代码评审助手（3 个 TS 文件）
+├── debug/                          # 跨域调试 — 日志+代码关联（3 个 TS 文件）
+├── collab/                         # 团队协作 — 索引共享 + 注释（3 个 TS 文件）
+├── sync/                           # 多设备同步（3 个 TS 文件）
+├── env-mgr/                        # 环境管理 — 项目/运行时/依赖/外部服务检测（3 个 TS 文件）
+├── git-intel/                      # Git 操作 — log/diff/blame（3 个 TS 文件）
+├── file-watcher/                   # 文件监听 — 增量索引（3 个 TS 文件）
 │
-├── code-review/                    # 代码评审助手
-│   ├── code-reviewer.ts
-│   ├── code-reviewer.impl.ts
-│   └── code-reviewer.test.ts
-│
-├── debug/                          # 跨域调试（日志+代码关联）
-│   ├── cross-domain-debugger.ts
-│   ├── cross-domain-debugger.impl.ts
-│   └── cross-domain-debugger.test.ts
-│
-├── collab/                         # 团队协作（索引共享 + 注释）
-│   ├── team-collaboration.ts
-│   ├── team-collaboration.impl.ts
-│   └── team-collaboration.test.ts
-│
-├── sync/                           # 多设备同步
-│   ├── device-sync.ts
-│   ├── device-sync.impl.ts
-│   └── device-sync.test.ts
-│
-├── env-mgr/                        # 环境管理 — 项目/运行时/依赖/外部服务检测
-│   ├── environment-manager.ts
-│   ├── environment-manager.impl.ts
-│   └── environment-manager.test.ts
-│
-├── git-intel/                      # Git 操作 — log/diff/blame
-│   ├── git-intelligence.ts
-│   ├── git-intelligence.impl.ts
-│   └── git-intelligence.test.ts
-│
-├── file-watcher/                   # 文件监听 — 增量索引
-│   ├── file-watcher.ts
-│   ├── file-watcher.impl.ts
-│   └── file-watcher.test.ts
-│
-├── change-sensor/                  # 变更传感器 — 旁观监听 Git 工作树变更，打包 ChangeBatch
-│   ├── change-sensor.ts
-│   ├── change-sensor.impl.ts
-│   └── change-sensor.test.ts
-│
-├── understanding-debt/             # 理解债引擎 — 债值计算/持久化/两态（examined/confirmed）切换
+├── change-sensor/                  # 变更传感器 — 旁观监听 Git 工作树变更（3 个 TS 文件）
+├── understanding-debt/             # 理解债引擎 — 债值计算/持久化/两态切换（5 个 TS 文件）
 │   ├── debt-formula.ts             # 债值公式纯函数（debt = changeRecency × uncoveredRatio × difficulty）
-│   ├── debt-engine.ts
-│   ├── debt-engine.impl.ts
-│   ├── debt-engine.test.ts
+│   ├── debt-engine.ts & .impl.ts
 │   └── alignment-integration.test.ts
-│
-├── semantic-chunk/                 # 语义切片 — 按模块目录聚类变更符号 + 生成简报卡
-│   ├── semantic-chunker.ts
-│   ├── brief-template.ts
-│   ├── semantic-chunker.impl.ts
-│   └── semantic-chunker.test.ts
-│
-├── alignment/                      # 对齐飞轮 — 捕获人工修正 → 分类 tag → 反哺 conventions
+├── semantic-chunk/                 # 语义切片 — 目录聚类 + 简报卡（4 个 TS 文件）
+│   ├── semantic-chunker.ts & .impl.ts
+│   └── brief-template.ts
+├── alignment/                      # 对齐飞轮 — 修正捕获 → tag 分类 → conventions 反哺（7 个 TS 文件）
 │   ├── tag-classifier.ts           # diff → tag 启发式规则库（8 类）
 │   ├── conventions-emitter.ts      # PluggableEmitter 接口
-│   ├── alignment-flywheel.ts
-│   ├── alignment-flywheel.impl.ts
-│   ├── emitters/
-│   │   └── nodus-md-emitter.ts     # .nodus/conventions.md 发射器
-│   ├── tag-classifier.test.ts
-│   └── alignment-flywheel.test.ts
+│   ├── alignment-flywheel.ts & .impl.ts
+│   └── emitters/nodus-md-emitter.ts
+├── overlay/                        # 叠加层 — 带行级债值标注的代码视图（2 个 TS 文件）
 │
-├── overlay/                        # 叠加层 — 带行级债值标注的代码视图（P1 终端 / P2 编辑器）
-│   ├── annotated-view.ts
-│   └── annotated-view.test.ts
-│
-├── intent/                         # 意图引擎 — NLU 解析
+├── intent/                         # 意图引擎 — NLU 解析（5 个 TS 文件）
 │   ├── intent-engine.ts            # 接口与类型
 │   ├── intent-engine.impl.ts       # PatternIntentEngine（正则 + 相似度回退）
-│   ├── local-ml-intent-engine.ts   # 本地轻量神经网络意图分类器
-│   ├── intent-engine.test.ts
-│   └── local-ml-intent-engine.test.ts
-│
-├── ui/                             # 结果格式化与 UI 抽象
-│   ├── ui-renderer.ts              # UI 渲染器接口（卡片、呼吸灯、历史等）
+│   └── local-ml-intent-engine.ts   # 本地轻量神经网络意图分类器
+├── ui/                             # 结果格式化与 UI 抽象（5 个 TS 文件）
+│   ├── ui-renderer.ts              # UI 渲染器接口
 │   ├── terminal-renderer.ts        # 终端渲染实现
-│   ├── code-snippet.ts             # 代码片段与高亮
-│   ├── terminal-renderer.test.ts
-│   └── code-snippet.test.ts
-│
-└── voice/                          # 语音管线 — 唤醒词 + 录音 + STT + TTS
-    ├── voice-pipeline.ts
-    ├── voice-pipeline.impl.ts
-    ├── audio-recorder.ts           # 录音接口
-    ├── stt-engine.ts               # 语音转文字接口
-    ├── wake-word-detector.ts       # 唤醒词接口
-    └── voice-pipeline.test.ts
+│   └── code-snippet.ts             # 代码片段与高亮
+└── voice/                          # 语音管线 — 唤醒词 + 录音 + STT + TTS（6 个 TS 文件）
 ```
 
 ### 3.3 架构分层
@@ -314,7 +236,7 @@ src/
 2. **事件总线**（松耦合）：通过 `SimpleEventBus` 收发 `NodusEvent` 标准事件，主要用于文件变更、索引状态、环境状态、配置变更、错误降级等。
 3. **禁止**：直接访问其他模块内部数据结构或实现类。
 
-### 3.4 各模块实现状态（实际）
+### 3.4 各模块实现状态
 
 | 模块 | 接口 | 实现 | 单元测试 | 备注 |
 |------|------|------|----------|------|
@@ -365,7 +287,7 @@ npm run check:native
 # 重新编译原生依赖
 npm run rebuild:native
 
-# 运行全部测试
+# 运行全部测试（当前：38 个测试文件，465 个测试，全部通过）
 npm test
 
 # 监听模式（TDD）
@@ -374,7 +296,7 @@ npm run test:watch
 # 测试覆盖率
 npm run test:coverage
 
-# TypeScript 类型检查
+# TypeScript 类型检查（无报错）
 npm run typecheck
 
 # 开发模式启动
@@ -395,12 +317,13 @@ npm run run:pkg
 
 ### 4.1 当前测试结果
 
-实际运行 `npm test` 的最近一次结果（38 个测试文件 / 459 个测试，全部通过，`npm run typecheck` 无报错）：
+最近一次 `npm test` 结果（2026-07-06 验证）：
 
 - **测试文件**：38 个
-- **总测试数**：459 个
-- **通过**：459 个
+- **总测试数**：465 个
+- **通过**：465 个
 - **失败**：0 个
+- `npm run typecheck` 无报错
 
 > 原生依赖在新平台上仍可能加载失败，导致相关测试无法运行，需先执行 `npm run rebuild:native`。
 
@@ -434,7 +357,8 @@ src/<module>/
 
 - 严格模式已开启（`"strict": true`）。
 - `verbatimModuleSyntax: true`：类型导入必须写 `import type { ... }`。
-- ESM + NodeNext 解析；`tsconfig.json` 中 `rootDir: src`，`outDir: dist`；`tsconfig.json` 用 `exclude: ["src/**/*.test.ts"]` 排除测试文件。
+- ESM + NodeNext 解析（`module: "nodenext"`, `moduleResolution: "nodenext"`）；`target: "es2022"`。
+- `tsconfig.json` 中 `rootDir: "src"`，`outDir: "dist"`；`include: ["src/**/*.ts"]`，`exclude: ["src/**/*.test.ts"]`。
 - 不允许隐式 `any`；优先用 `unknown` 并收窄。
 - 导出的接口需带 JSDoc 注释。
 - 源码与注释主要使用**中文**。
@@ -455,7 +379,7 @@ src/<module>/
 
 ### 6.1 测试框架
 
-使用 **Vitest**，配置：
+使用 **Vitest v4**，配置（`vitest.config.ts`）：
 
 - `globals: true`：全局 `describe` / `it` / `expect`。
 - `environment: 'node'`。
@@ -482,11 +406,11 @@ src/<module>/
 
 - 共享层：`config`、`errors`、`logger`、`native-deps`
 - 核心能力：`code-intelligence`、`code-analytics`、`reference-resolver`、`module-resolver`、`type-relationship`
-- 编排与基础设施：`shell`、`event-bus`、`context`、`store`（含 migrations）、`query-cache`、`recommendation-engine`
+- 编排与基础设施：`shell`（含 `event-bus`、`nodus-shell`、`query-cache`、`recommendation-engine`）、`context`、`store`（含 migrations）
 - 扩展能力：`code-gen`、`code-review`、`debug`、`collab`、`sync`
 - 外部集成：`env-mgr`、`git-intel`、`file-watcher`
 - 理解层：`change-sensor`、`understanding-debt`（含 `debt-engine` + `alignment-integration`）、`semantic-chunk`、`alignment`（含 `tag-classifier` + `flywheel`）、`overlay`
-- 界面与交互：`ui`、`intent`、`voice`
+- 界面与交互：`ui`（含 `terminal-renderer`、`code-snippet`）、`intent`（含 `local-ml-intent-engine`）、`voice`
 
 ---
 
@@ -634,3 +558,4 @@ node bundle/dist/main.js
 - 修改 `NodusShell` 生命周期或事件路由时，同步检查 `src/shell/nodus-shell.test.ts` 与 `src/main.ts`。
 - 所有相对导入必须带 `.js` 扩展名（ESM + NodeNext + `verbatimModuleSyntax` 要求）。
 - 改完代码后跑 `npm run typecheck` 与 `npm test` 验证；前者检查类型，后者覆盖功能回归。
+- `.gitignore` 已忽略 `dist/`、`bundle/`、`node_modules/`、`package-lock.json`、`pnpm-lock.yaml`、`*.db`、`.nodus/` 等。
