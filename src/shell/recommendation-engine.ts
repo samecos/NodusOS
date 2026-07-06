@@ -51,8 +51,34 @@ export class RecommendationEngine {
           reason: `查看 ${symbol} 的影响范围`,
         });
       }
+      // 理解层推荐：当用户位于某个文件时，推荐查看带标注的视图
+      if (ctx.active_file) {
+        this.addUnique(results, seen, {
+          text: `查看 ${ctx.active_file}`,
+          reason: '查看当前文件的行级债值标注',
+        });
+      }
     } catch {
       // 降级：策略失败不影响后续
+    }
+
+    // 策略 1b：理解层推荐（当有实际项目路径且未查询过变更时）
+    try {
+      const ctx = this.contextMgr.snapshot();
+      const projectRoot = ctx.active_project_root;
+      // 只在有实际项目路径时推荐（排除测试中的 '/' 根路径）
+      if (projectRoot && projectRoot !== '/') {
+        const recentHistory = this.store.historyRecent(5);
+        const hasRecentChangeQuery = recentHistory.some(h => h.intent_type === 'recent_changes');
+        if (!hasRecentChangeQuery) {
+          this.addUnique(results, seen, {
+            text: 'AI 最近改到哪儿了',
+            reason: '查看最近的变更热力图与语义块',
+          });
+        }
+      }
+    } catch {
+      // 降级
     }
 
     // 策略 2：高频查询

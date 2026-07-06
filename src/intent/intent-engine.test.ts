@@ -255,6 +255,58 @@ describe('IntentEngine', () => {
     }
   });
 
+  // 理解层意图测试
+  it('TC-UT-IE-030: should parse recent_changes intent "AI 具体改到哪儿了"', () => {
+    const result = engine.parse({ source: 'text', text: 'AI 具体改到哪儿了', locale: 'zh-CN' }, emptyContext);
+    expect(result).not.toHaveProperty('kind');
+    if (!('kind' in result)) {
+      expect(result.intentType).toBe('recent_changes');
+    }
+  });
+
+  it('TC-UT-IE-031: should parse view_annotated intent for .ts file', () => {
+    const result = engine.parse({ source: 'text', text: '查看 src/main.ts', locale: 'zh-CN' }, emptyContext);
+    expect(result).not.toHaveProperty('kind');
+    if (!('kind' in result)) {
+      expect(result.intentType).toBe('view_annotated');
+      expect(result.entities.filePath).toBe('src/main.ts');
+    }
+  });
+
+  it('TC-UT-IE-032: should parse view_annotated intent for .cpp file', () => {
+    const result = engine.parse({ source: 'text', text: '看看 engine.cpp', locale: 'zh-CN' }, emptyContext);
+    expect(result).not.toHaveProperty('kind');
+    if (!('kind' in result)) {
+      expect(result.intentType).toBe('view_annotated');
+      expect(result.entities.filePath).toBe('engine.cpp');
+    }
+  });
+
+  it('TC-UT-IE-033: should parse chunk_brief intent "模块简报"', () => {
+    const result = engine.parse({ source: 'text', text: '模块简报', locale: 'zh-CN' }, emptyContext);
+    expect(result).not.toHaveProperty('kind');
+    if (!('kind' in result)) {
+      expect(result.intentType).toBe('chunk_brief');
+    }
+  });
+
+  it('TC-UT-IE-034: should parse confirm_reviewed intent "/confirm symbol"', () => {
+    const result = engine.parse({ source: 'text', text: '/confirm refundOrder', locale: 'zh-CN' }, emptyContext);
+    expect(result).not.toHaveProperty('kind');
+    if (!('kind' in result)) {
+      expect(result.intentType).toBe('confirm_reviewed');
+      expect(result.entities.symbolName).toBe('refundOrder');
+    }
+  });
+
+  it('TC-UT-IE-035: should parse prune_conventions intent "列出约定"', () => {
+    const result = engine.parse({ source: 'text', text: '列出约定', locale: 'zh-CN' }, emptyContext);
+    expect(result).not.toHaveProperty('kind');
+    if (!('kind' in result)) {
+      expect(result.intentType).toBe('prune_conventions');
+    }
+  });
+
   // ==========================================================
   // R2.7 学习闭环测试
   // ==========================================================

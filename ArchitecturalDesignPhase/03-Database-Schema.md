@@ -113,6 +113,43 @@
                             │     tags JSON         │
                             │     created_at TEXT   │
                             └──────────────────────┘
+                            ┌──────────────────────┐
+                            │  debt_entries (v4)   │  ← 理解债热力图
+                            ├──────────────────────┤
+                            │ PK  symbol_id TEXT    │
+                            │     file_path TEXT   │
+                            │     debt REAL        │
+                            │     change_recency   │
+                            │     difficulty REAL  │
+                            │     examined_at INT  │
+                            │     confirmed_at INT │
+                            │     updated_at INT   │
+                            └──────────────────────┘
+                            ┌──────────────────────┐
+                            │ code_annotations(v5) │  ← 人工修正标注
+                            ├──────────────────────┤
+                            │ PK  id INTEGER        │
+                            │     ai_generated TEXT│
+                            │     human_modified   │
+                            │     diff TEXT         │
+                            │     symbols TEXT(JSON)│
+                            │     tags TEXT(JSON)   │
+                            │     chunk_id TEXT    │
+                            │     brief_hits TEXT  │
+                            │     action TEXT      │
+                            │     debt_at_review   │
+                            │     created_at TEXT  │
+                            └──────────────────────┘
+                            ┌──────────────────────┐
+                            │  conventions (v6)    │  ← 对齐飞轮约定
+                            ├──────────────────────┤
+                            │ PK  tag TEXT         │
+                            │     pattern_desc TEXT│
+                            │     occurrences INT  │
+                            │     symbol_examples  │
+                            │     last_seen INT    │
+                            └──────────────────────┘
+
 
    ───→  外键关联 (FOREIGN KEY REFERENCES)
    ─ ─→  间接关联 (通过 file_path 字符串匹配)
@@ -255,6 +292,52 @@ KV 存储，key 为点分路径。
 | `annotation_tags` | TEXT | nullable | JSON 标注标签，如 `["add_null_check","add_audit_log"]` |
 | `created_at` | TEXT | NOT NULL, DEFAULT datetime('now') | |
 
+### 3.10 debt_entries — 理解债表 (v4)
+
+理解层热力图数据。每个被 AI 改动的符号对应一行，存储债值及其计算分解。
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| `symbol_id` | TEXT | PK | 符号唯一标识（格式 `file_path:symbolName`） |
+| `file_path` | TEXT | NOT NULL | 所属文件路径 |
+| `debt` | REAL | NOT NULL | 理解债总值 = changeRecency × uncoveredRatio × difficulty |
+| `change_recency` | REAL | NOT NULL | 变更近因（Σ e^(-Δt/τ)，τ=7天） |
+| `difficulty` | REAL | NOT NULL | 理解难度（½·complexity + ½·blastRadius） |
+| `examined_at` | INTEGER | nullable | 首次呈现简报/影响视图的时间戳（null=未看过） |
+| `confirmed_at` | INTEGER | nullable | 显式确认审查完成的时间戳（null=未确认） |
+| `updated_at` | INTEGER | NOT NULL | 最后更新时间戳 |
+
+### 3.11 code_annotations — 代码修正标注表 (v5)
+
+理解层对齐飞轮的修正信号存储。当人修改 AI 生成的代码后，记录 before/after 差异及自动分类的修正标签。
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| `id` | INTEGER | PK AUTOINCREMENT | |
+| `ai_generated_code` | TEXT | NOT NULL | AI 生成的代码（变更前快照） |
+| `human_modified_code` | TEXT | NOT NULL | 人类修改后的代码 |
+| `diff` | TEXT | NOT NULL | unified diff |
+| `symbols_involved` | TEXT | nullable | JSON，涉及的符号 ID 列表 |
+| `annotation_tags` | TEXT | nullable | JSON 标注标签，如 `["add_null_check","add_error_handling"]` |
+| `chunk_id` | TEXT | nullable | 所属语义块 ID |
+| `brief_field_hits` | TEXT | nullable | JSON，命中的简报字段列表 |
+| `action` | TEXT | NOT NULL | 审查动作：pass / dig / reject |
+| `debt_at_review` | REAL | nullable | 审查时的理解债快照（用于事后校准权重） |
+| `created_at` | TEXT | NOT NULL, DEFAULT datetime('now') | |
+
+### 3.12 conventions — 约定模式表 (v6)
+
+对齐飞轮的约定反哺存储。从反复出现的人工修正模式中积累，用于生成 `.nodus/conventions.md` 反喂 AI 工具。
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| `tag` | TEXT | PK | 修正标签，如 `add_null_check` |
+| `pattern_desc` | TEXT | NOT NULL | 模式描述，如"调用外部服务后未判空" |
+| `occurrences` | INTEGER | NOT NULL, DEFAULT 0 | 累计出现次数 |
+| `symbol_examples` | TEXT | nullable | JSON，典型示例符号 |
+| `last_seen` | INTEGER | NOT NULL | 最后出现时间戳 |
+
+
 ---
 
 ## 4. 索引策略
@@ -300,6 +383,22 @@ CREATE INDEX idx_refs_kind ON references(kind);
 
 -- 增量索引时 checksum 比较
 CREATE INDEX idx_file_state_checksum ON file_index_state(checksum);
+
+-- === debt_entries 表索引 ===
+
+-- 按文件查询债值
+CREATE INDEX idx_debt_file ON debt_entries(file_path);
+
+-- 按债值排序获取 Top-N 红区
+CREATE INDEX idx_debt_value ON debt_entries(debt DESC);
+
+-- === code_annotations 表索引 ===
+
+-- 按标注标签查询
+CREATE INDEX idx_code_anno_tags ON code_annotations(annotation_tags);
+
+-- 按符号查询历史修正
+CREATE INDEX idx_code_anno_symbol ON code_annotations(symbols_involved);
 
 -- === query_history 表索引 ===
 
@@ -409,6 +508,27 @@ const MIGRATIONS: &[Migration] = &[
         description: "Add annotations table for training data",
         up: include_str!("migrations/002_annotations.sql"),
         down: Some("DROP TABLE IF EXISTS annotations;"),
+    },
+    Migration {
+        version: 4,
+        name: "add_debt_entries",
+        description: "理解债热力图 — debt_entries 表",
+        up: include_str!("migrations/004_debt_entries.sql"),
+        down: Some("DROP TABLE IF EXISTS debt_entries;"),
+    },
+    Migration {
+        version: 5,
+        name: "add_code_annotations",
+        description: "人工修正标注 — code_annotations 表",
+        up: include_str!("migrations/005_code_annotations.sql"),
+        down: Some("DROP TABLE IF EXISTS code_annotations;"),
+    },
+    Migration {
+        version: 6,
+        name: "add_conventions",
+        description: "对齐飞轮约定 — conventions 表",
+        up: include_str!("migrations/006_conventions.sql"),
+        down: Some("DROP TABLE IF EXISTS conventions;"),
     },
 ];
 ```

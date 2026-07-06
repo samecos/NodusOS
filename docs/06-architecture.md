@@ -484,6 +484,32 @@ User: "Nodus, auth模块最近一周改了什么"
 ```
 
 ---
+### 流程5：理解层——AI 变更感知与审查 (P1 已实现)
+
+```
+人使用 AI 工具（Cursor/Copilot 等）修改文件
+  │ (fs.watch + git diff)
+  ▼
+ChangeSensor.detect() → ChangeBatch
+  │
+  ├─→ DebtEngine.recompute() → 热力图
+  │
+  └─→ SemanticChunker.chunk() → 语义块 + 简报卡
+  │
+  ▼
+人在 Nodus REPL 中查询：
+  "AI 最近改到哪儿了" → 渲染热力图 + 语义块列表
+  "查看 payment.ts"     → 渲染带行级债值标注的代码视图
+  "块1的简报"           → 渲染语义块简报卡
+  "这块过了"           → 债值清零
+  │
+  ▼ 人在编辑器中修正代码
+AlignmentFlywheel.capture() → classifyDiff → conventions 表
+  │
+  ▼
+AlignmentFlywheel.emitConventions() → .nodus/conventions.md → 反哺 AI 工具
+```
+
 
 ## 五、技术选型讨论
 
@@ -565,6 +591,51 @@ NodusOS/
 ```
 
 ---
+
+
+### 模块10：ChangeSensor（变更传感器）
+
+**定位**：旁观者——只读 Git/文件，不侵入 AI 工具。
+
+**职责**：监听 Git 工作树变更（`git diff --name-only HEAD` + `git ls-files --others`），打包成 ChangeBatch（含受影响文件、被改动符号列表、工作树快照）。
+
+**接口**：`detect(projectRoot)` → `ChangeBatch | null`；`onBatch(handler)` 事件订阅。
+
+### 模块11：DebtEngine（理解债引擎）
+
+**理解债公式**：`debt(symbol) = changeRecency × uncoveredRatio × difficulty`
+
+- `changeRecency` = Σ e^(-Δt/τ)，τ=7 天指数衰减
+- `uncoveredRatio` = 1 - reviewedCoverage（examined → 0.5, confirmed → 0）
+- `difficulty` = ½·complexity + ½·blastRadius
+
+**生态语义**：examined（隐式，看过简报时自动标记，债值减半）/ confirmed（显式，人确认审查完成，债值清零）。热力图显示：<1 绿 / 1-3 黄 / >3 红。
+
+**接口**：`recompute(batch): void`；`getTopDebt(limit)` / `getDebtByFile(file)` → `DebtQueryResult[]`；`markExamined(id)` / `confirmReviewed(id)`；`decay()`。
+
+### 模块12：SemanticChunker（语义切片器）
+
+**职责**：按模块目录将变更符号聚类为语义块（1-8 符号/块），每块生成简报卡。P1 用目录聚类，v2 升级为调用图诱导子图连通分量。
+
+**简报卡字段**：块标题、改动符号+复杂度、影响半径、风险等级、复杂度热点、测试覆盖、已知隐患、建议抽检点。
+
+**接口**：`chunk(batch)` → `SemanticChunk[]`；`brief(chunk, batch)` → `BriefCard`。
+
+### 模块13：AlignmentFlywheel（对齐飞轮）
+
+**职责**：捕获人对 AI 代码的修正 → `classifyDiff` 自动分类 tag（add_null_check / add_error_handling / add_type / rename_symbol / extract_function / remove_debug / simplify / revert 共 8 类）→ 累积到 conventions 表 → 生成 `.nodus/conventions.md` 反喂 AI 工具。
+
+**组件**：TagClassifier（diff → tag 启发式规则库）+ ConventionsEmitter（PluggableEmitter 接口，默认 NodusMdEmitter）。
+
+**接口**：`capture(input: CorrectionCapture): void`；`emitConventions(projectRoot): void`；`listConventions()`；`prune(tag): boolean`。
+
+### 模块14：AnnotatedView（带标注代码视图）
+
+**P1 终端近似**：以行级债值标注渲染代码文件（`└─[AI 改过] 债值 4.1 ●红 │ 块2: PaymentService 加重试 │ 影响半径 5`），尾部附简报卡列表。
+
+**P2 编辑器叠加层**：通过 LSP server + VSCode 扩展实现就地叠加（悬停→影响半径卡片；代码段旁色块热区；侧栏简报卡）。Nodus 后端不变，仅换交付层。
+
+**接口**：`renderAnnotatedView(filePath, code, debts, briefs): string`（纯函数）。
 
 ## 下一步
 

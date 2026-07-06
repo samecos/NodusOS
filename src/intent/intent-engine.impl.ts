@@ -84,6 +84,15 @@ export class PatternIntentEngine implements IntentEngine {
     // list_projects
     { text: '列出所有项目', intentType: 'list_projects' },
     { text: 'show all projects', intentType: 'list_projects' },
+    // 理解层
+    { text: 'AI 最近改到哪儿了', intentType: 'recent_changes' },
+    { text: '最近改了什么', intentType: 'recent_changes' },
+    { text: '查看 xxx.ts', intentType: 'view_annotated', entityHint: 'file' },
+    { text: '看看 xxx.cpp', intentType: 'view_annotated', entityHint: 'file' },
+    { text: 'chunk 1 简报', intentType: 'chunk_brief' },
+    { text: '模块简报', intentType: 'chunk_brief' },
+    { text: '确认 xxx 已审查', intentType: 'confirm_reviewed', entityHint: 'symbol' },
+    { text: '列出约定', intentType: 'prune_conventions' },
   ];
 
   /** 从 feedback.jsonl 学习到的例句列表 */
@@ -470,6 +479,8 @@ export class PatternIntentEngine implements IntentEngine {
         patterns: [
           /(?:ai\s+)?(?:最近|recent|latest).{0,6}(?:改了?什么|改了?哪儿|变更|changes?|modified)/i,
           /最近.{0,4}(?:什么|哪些).{0,4}改/i,
+          /(?:ai|人工智能)?(?:具体)?(?:改|变化|变更).{0,4}(?:到哪儿|到哪儿了|哪里|哪儿|哪里了)/i,
+          /(?:ai|人工智能)?(?:最近|本次|这次|刚刚).{0,4}(?:改|变化|变更|修改|调整)/i,
         ],
         intentType: 'recent_changes',
         extractEntities: () => ({}),
@@ -477,8 +488,8 @@ export class PatternIntentEngine implements IntentEngine {
       // 理解层：查看带标注的文件视图
       {
         patterns: [
-          /(?:查看|打开|看看|view|show|open)\s+(.+?\.(?:ts|tsx|js|jsx|py))/i,
-          /(.+?\.(?:ts|tsx|js|jsx|py))\s*(?:的)?(?:代码|文件|视图|带标注)/i,
+          /(?:查看|打开|看看|view|show|open)\s+(.+?\.(?:ts|tsx|js|jsx|py|cpp|c|h|hpp|rs|go|java|kt|swift))/i,
+          /(.+?\.(?:ts|tsx|js|jsx|py|cpp|c|h|hpp|rs|go|java|kt|swift))\s*(?:的)?(?:代码|文件|视图|带标注)/i,
         ],
         intentType: 'view_annotated',
         extractEntities: (match, _text, _ctx) => ({
@@ -490,6 +501,7 @@ export class PatternIntentEngine implements IntentEngine {
         patterns: [
           /(?:块\s*\d+|chunk\s*\d+).{0,4}(?:的)?(?:简报|brief|改了?什么|详情)/i,
           /(?:这|那)块.{0,4}(?:简报|改了?什么|详情)/i,
+          /(?:模块|业务块|语义块).{0,4}(?:简报|brief|详情|改了?什么)/i,
         ],
         intentType: 'chunk_brief',
         extractEntities: (match, _text, _ctx) => {
@@ -501,13 +513,17 @@ export class PatternIntentEngine implements IntentEngine {
       {
         patterns: [
           /(?:这|那)?块.{0,2}(?:过了|ok|pass|确认|confirm)/i,
-          /\/confirm\s+(.+)/i,
+          /(?:\/)confirm\s+(.+)/i,
           /确认\s+(.+).{0,2}(?:过了|审完|ok)/i,
         ],
         intentType: 'confirm_reviewed',
-        extractEntities: (match, _text, ctx) => ({
-          symbolName: match![1] ? match![1].trim() : ctx.cursor_symbol ?? undefined,
-        }),
+        extractEntities: (match, text, ctx) => {
+          // 从原始文本提取以保持大小写（lower 匹配会丢失大小写）
+          const rawMatch = /(?:\/)confirm\s+(.+)/.exec(text) ?? /确认\s+(.+).{0,2}(?:过了|审完|ok)/.exec(text);
+          return {
+            symbolName: rawMatch?.[1]?.trim() ?? ctx.cursor_symbol ?? undefined,
+          };
+        },
       },
       // 理解层：删除/列出约定
       {
@@ -716,7 +732,7 @@ export class PatternIntentEngine implements IntentEngine {
   }
 
   private extractFilePath(text: string): string | null {
-    const match = text.match(/([a-zA-Z_][\w/.-]*\.(ts|tsx|js|jsx|py|service\.ts|component\.tsx))/);
+    const match = text.match(/([a-zA-Z_][\w/.-]*\.(?:ts|tsx|js|jsx|py|cpp|c|h|hpp|rs|go|java|kt|swift|service\.ts|component\.tsx))/);
     return match?.[1] ?? null;
   }
 

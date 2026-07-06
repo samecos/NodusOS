@@ -100,6 +100,11 @@ async function main() {
   refundOrder在哪里定义的
   PaymentService被哪些地方调用了
   项目代码统计
+  AI 最近改到哪儿了
+  查看 src/main.ts
+  chunk 1 简报
+  确认 refundOrder 已审查
+  列出约定
 `);
       continue;
     }
@@ -134,6 +139,13 @@ async function main() {
     切换项目        切换到 /path/to/project
     列出项目        /list-projects
     查询历史        /history
+
+  理解层（人与 AI 代码产出对齐）
+    最近变更        AI 最近改到哪儿了
+    带标注视图      查看 src/main.ts
+    语义块简报      chunk 1 简报
+    确认审查        确认 refundOrder 已审查
+    列出约定        列出约定
 
   其他
     推荐查询        直接按回车

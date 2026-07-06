@@ -23,6 +23,11 @@
 | IntentEngine | 中 | 当前为规则+相似度，无本地轻量模型；歧义学习仅记录未利用 |
 | TerminalRenderer | 高 | 仅文本输出，无图形卡片与代码高亮 |
 | VoicePipeline | 低 | TTS 可用，唤醒词检测与 STT 未真正跑通 |
+| ChangeSensor | 高 | P1 已实现并通过 Git（`git diff --name-only HEAD` + `git ls-files --others`）检测工作树变更；符号提取为声明行匹配，精度待提升 |
+| DebtEngine | 高 | P1 已实现；债值公式 `debt = changeRecency × uncoveredRatio × difficulty` 落地；examined / confirmed 两态已接入 REPL；blasRadius 硬编码 0.5 导致新鲜变更 debt < 1.0 |
+| SemanticChunker | 高 | P1 已实现；按模块目录聚类 + 简报卡生成；尚未接入调用图连通分量 |
+| AlignmentFlywheel | 高 | P1 已实现；capture → classifyDiff（8 类 tag）→ conventions 表 → `.nodus/conventions.md` 闭环；自动捕获依赖 FileWatcher |
+| AnnotatedView | 高 | P1 已实现；终端带行级债值标注的代码视图；P2 编辑器叠加层（LSP/VSCode）待开发 |
 
 ---
 
@@ -72,6 +77,27 @@
 | R3.6 | 团队协作（知识共享） | P2 | 项目级语义索引共享、注释共享；需解决隐私与权限 | store |
 | R3.7 | 多设备同步 | P2 | 查询历史、偏好、打开项目列表跨设备同步；本地优先原则下可用 iCloud / 自托管 | store |
 | R3.8 | 新语言支持插件化 | P1 | Rust / Go / Java 等语言通过插件机制接入，不修改 CodeIntel 核心 | code-intel |
+
+### 2.4 v2.x — 理解层：人与 AI 代码产出对齐（Understanding Layer）
+
+目标：破局「车在前面跑、人在后面追」——AI agent 写代码速度太快，人跟不上、颗粒度对不上、读不完。Nodus 作为旁观者，在代码上铺一层「理解热力图 + 语义路标」，让人扫一眼就知道哪段危险、该在哪停。
+
+> P1 已全部实现并接入 REPL。P2 增强项（编辑器叠加层、飞轮自动捕获、债值校准、调用图聚类等）待排期。
+
+| ID | 需求 | 优先级 | 说明 | 关联模块 |
+|----|------|--------|------|---------|
+| R4.1 | 理解层 P1：旁观测+热力图+语义块+飞轮 | P0 | ChangeSensor（Git 变更感知）+ DebtEngine（理解债热力图）+ SemanticChunker（语义切片简报）+ AlignmentFlywheel（修正捕获→tag 分类→conventions 反哺）+ AnnotatedView（终端带标注代码视图）；全部接入 REPL（5 条新意图+5 个新命令） | change-sensor, understanding-debt, semantic-chunk, alignment, overlay, store, intent, ui, shell |
+| R4.2 | 编辑器叠加层（LSP / VSCode 扩展） | P1 | 理解信息就地长在代码上：悬停→影响半径卡片；代码段旁色块热区；侧栏简报卡。Nodus 后端不变，仅换交付层 | overlay, ui |
+| R4.3 | 飞轮自动捕获（FileWatcher + 保存静默窗口） | P1 | ChangeSensor.start 接入 FileWatcher，检测保存静默窗口后自动触发 capture，无需手动触发 | change-sensor, alignment |
+| R4.4 | 债值校准（ImpactAnalysis + 真实 diff hunk） | P1 | 接入 CodeAnalytics.complexityScores + ImpactAnalysis.affectedFiles 替换硬编码 difficulty；ChangeSensor 存真实 git diff hunk 替换声明行扫描，让热力图产生梯度 | understanding-debt, change-sensor, code-intel |
+| R4.5 | 调用图连通分量聚类 | P1 | SemanticChunker 从目录聚类升级为调用图诱导子图连通分量，更精确的语义块划分 | semantic-chunk, code-intel |
+| R4.6 | DebtEngine 权重自校准 | P1 | 攒够 50 条 `(debt_at_review, did_modify)` 配对后重拟合公式权重（τ、complexity/blastRadius 配比） | understanding-debt, alignment |
+| R4.7 | 每日衰减 cron | P1 | `debtDecayAll` 定时执行（每日），防僵尸红区 | understanding-debt, shell |
+| R4.8 | CursorRules / AgentsMd 发射器 | P1 | PluggableEmitter 扩展，检测到对应 AI 工具时自动发射约定文件到 `.cursorrules` / `AGENTS.md` | alignment |
+| R4.9 | 跨批次语义块合并 | P2 | 连续多批变更的语义块关联追踪，避免同一逻辑改动被重复审 | semantic-chunk |
+| R4.10 | LLM 提炼通用 conventions | P2 | 从带溯源的具体模式升级为抽象规则（如"调用外部服务后必须判空"） | alignment |
+| R4.11 | 团队 conventions 共享 | P2 | `.nodus/conventions.md` 纳入团队协作模块，同一项目成员共享 | alignment, collab |
+| R4.12 | 杂项清理 | P1 | `/list` 补全理解层能力、CYAN/BLUE ANSI 常量去重、`debtAll` 死代码清理、新 QueryResult 变种加入卡片白名单 | ui, shell, understanding-debt |
 
 ---
 
@@ -124,6 +150,11 @@
 │ context                │ R1.7, R2.2, R2.8                             │
 │ shell / event-bus      │ R1.7, R2.8, R1.8                             │
 │ common/config          │ R1.6                                         │
+│ change-sensor          │ R4.1, R4.3, R4.4                               │
+│ understanding-debt     │ R4.1, R4.4, R4.6, R4.7                         │
+│ semantic-chunk         │ R4.1, R4.5, R4.9                               │
+│ alignment              │ R4.1, R4.3, R4.8, R4.10, R4.11                 │
+│ overlay                │ R4.1, R4.2                                     │
 └────────────────────────┴────────────────────────────────────────────┘
 ```
 
@@ -133,9 +164,9 @@
 
 ### 6.1 优先级分层
 
-- **P0（尽快做）**: R1.1, R1.2, R2.1, R2.2, R3.1
-- **P1（下个版本做）**: R1.3, R1.4, R1.5, R1.6, R1.7, R1.8, R2.3, R2.4, R2.5, R2.6, R2.7, R2.8, R3.2, R3.3, R3.4, R3.5, R3.8
-- **P2（远期）**: R3.6, R3.7
+- **P0（尽快做）**: R1.1, R1.2, R2.1, R2.2, R3.1, R4.1
+- **P1（下个版本做）**: R1.3, R1.4, R1.5, R1.6, R1.7, R1.8, R2.3, R2.4, R2.5, R2.6, R2.7, R2.8, R3.2, R3.3, R3.4, R3.5, R3.8, R4.2, R4.3, R4.4, R4.5, R4.6, R4.7, R4.8, R4.12
+- **P2（远期）**: R3.6, R3.7, R4.9, R4.10, R4.11
 
 ### 6.2 关键依赖
 
@@ -153,7 +184,20 @@ R2.4 真正语音 ──► R2.5 呼吸灯
   │
   ▼
 R3.1 AI 代码生成 / R3.2 代码评审助手
+  │
+  ▼
+R4.1 理解层 P1 ──► R4.2 编辑器叠加层
+  │                    │
+  │              R4.4 债值校准 ←─ R4.3 飞轮自动捕获
+  │                    │
+  │              R4.5 调用图聚类
+  │                    │
+  │              R4.6 权重自校准 ──► R4.7 每日衰减
+  │
+  ▼
+R4.8 CursorRules/AgentsMd 发射器 ──► R4.10 LLM 提炼 ──► R4.11 团队共享
 ```
+
 
 **建议执行顺序**：
 1. v1.1 先修原生依赖 + 补齐测试，让现有能力稳定；
@@ -173,10 +217,11 @@ R3.1 AI 代码生成 / R3.2 代码评审助手
 
 ## 8. 结论
 
-Nodus 当前已完成"理解代码库"的核心骨架，但距离 PRD 中描绘的 AI-Native OS 体验仍有明显差距。下一步最务实的路径是：
+Nodus 当前已完成"理解代码库"的核心骨架，并在此基础上新增了**理解层 P1（R4.1）**——让 Nodus 作为旁观者感知 Git 变更、计算理解债热力图、按语义块生成简报、捕获人工修正反哺为项目约定。此能力已完整接入 REPL。下一步最务实的路径是：
 
 1. **先还债**（原生依赖、测试、引用精度）；
 2. **再增强体验**（意图模型、语音、上下文）；
-3. **最后扩展主动能力**（AI 生成、代码评审、跨域调试）。
+3. **扩展主动能力**（AI 生成、代码评审、跨域调试）；
+4. **深化理解层 P2**（编辑器叠加层、飞轮自动捕获、债值校准、调用图聚类）。
 
 本文档应随实现进展每 2~4 周更新一次状态，并在版本规划会议上作为输入。

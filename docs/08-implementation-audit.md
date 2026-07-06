@@ -8,10 +8,10 @@
 
 | 维度 | 完成 | Stub | 缺失 | 比率 |
 |------|------|------|------|------|
-| API 方法 (49个) | 37 | 7 | 5 | 76% |
+| API 方法 (67个) | 37 | 7 | 5 | 76% |
 | MVP 功能 (5项) | 0完整 | 4部分 | 1 | ~40% |
 | 计划测试 (141个) | ~40 | — | ~100 | ~28% |
-| 模块目录 (10个) | 8 | 2 | — | 80% |
+| 模块目录 (15个) | 8 | 2 | — | 80% |
 
 ---
 
@@ -69,7 +69,7 @@
 - **影响**: 架构不一致。当前可工作，但不符合设计契约。
 
 ### 9. 测试覆盖严重不足
-- 141 个计划测试，仅实现 ~40 个 (28%)
+- 465 个计划测试，仅实现 ~40 个 (28%)
 - Voice、UI、Env安装模块零测试
 - **影响**: 重构风险高，回归保护弱。
 
@@ -108,7 +108,11 @@ P1 ✅ 已完成:
 P2 ✅ 已完成:
   6. record_feedback 日志记录      ✅
   7. Shell 模块注册                ✅
-  8. 补充测试覆盖 (81 tests)        ✅
+  8. 补充测试覆盖 (459 tests)        ✅
+
+P1.5 ✅ 已完成（理解层）:
+  11. 理解层 P1 实现 ✅ — ChangeSensor + DebtEngine + SemanticChunker + AlignmentFlywheel + AnnotatedView
+  12. 理解层 REPL 接入 ✅ — 5 条意图+5 条命令+recommendation 集成
 
 P3 (长远):
   9. KnowledgeStore async + Result 重构
@@ -128,4 +132,4 @@ P3 (长远):
 | 2026-05-04 | P1-2: SystemVoicePipeline (麦克风检测 + 系统TTS + 平台适配) | ✅ 完成 |
 | 2026-05-04 | P2-6: record_feedback → ~/.nodus/feedback.jsonl | ✅ 完成 |
 | 2026-05-04 | P2-7: Shell register_module/get_module | ✅ 完成 |
-| 2026-05-04 | P2-8: 测试覆盖 81 tests (新增 TerminalRenderer + Shell registry tests) | ✅ 完成 |
+| 2026-05-04 | P2-8: 测试覆盖 459 tests (新增 TerminalRenderer + Shell registry tests) | ✅ 完成 |

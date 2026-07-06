@@ -112,6 +112,20 @@ MVP 阶段采用**模块化单体**架构。所有模块在同一进程中运行
 │  │ Query Engine   │                              │
 │  └────────────────┘   File Watcher               │
 │                       (FS events → idx update)    │
+│                                                  │
+│  Code Review             Code Generation         │
+│  Cross-Domain Debugger   Team Collaboration      │
+│  Device Sync                                      │
+└──────────────────────┬───────────────────────────┘
+                       │  Read/Write / ChangeBatch
+┌──────────────────────┴───────────────────────────┐
+│  UNDERSTANDING LAYER (理解层)  — 旁观者           │
+│                                                  │
+│  ChangeSensor    DebtEngine    SemanticChunker    │
+│  (Git变更感知)   (理解债热力图)  (语义切片+简报卡)  │
+│                                                  │
+│  AlignmentFlywheel          AnnotatedView         │
+│  (修正捕获→tag→conventions) (带债值标注的代码视图) │
 └──────────────────────┬───────────────────────────┘
                        │  Read/Write
 ┌──────────────────────┴───────────────────────────┐
@@ -122,6 +136,8 @@ MVP 阶段采用**模块化单体**架构。所有模块在同一进程中运行
 │   CallGraph Cache)       Dependencies)           │
 │                                                  │
 │  Query History          Annotations (v2)          │
+│  Debt Entries           Code Annotations          │
+│  Conventions                                      │
 └──────────────────────────────────────────────────┘
 ```
 
@@ -143,6 +159,11 @@ MVP 阶段采用**模块化单体**架构。所有模块在同一进程中运行
 | **UI Renderer** | 界面 | 卡片渲染、代码查看、呼吸灯、输入条 | 所有能力模块接口 |
 | **Voice Pipeline** | 界面 | 唤醒词检测、STT、TTS、无声模式 | 无 |
 | **Knowledge Store** | 数据 | SQLite + 内存索引的持久化层 | 无 |
+| **ChangeSensor** | 理解 | 旁观监听 Git 工作树变更，打包 ChangeBatch | Git Intelligence, File Watcher |
+| **DebtEngine** | 理解 | 理解债计算 `debt = changeRecency × uncoveredRatio × difficulty`；examined / confirmed 两态切换 | Knowledge Store, Code Intelligence |
+| **SemanticChunker** | 理解 | 变更符号聚类为语义块 + 生成简报卡 | Code Intelligence |
+| **AlignmentFlywheel** | 理解 | 捕获人工修正 → classifyDiff 分类 tag → 累积 conventions 表 → 生成 `.nodus/conventions.md` 反哺 AI 工具 | Knowledge Store, Tag Classifier, Conventions Emitter |
+| **AnnotatedView** | 理解 | 终端带行级债值标注的代码视图（P1）；编辑器就地叠加（P2 LSP/VSCode） | DebtEngine
 
 ---
 
@@ -286,6 +307,19 @@ MVP 阶段采用**模块化单体**架构。所有模块在同一进程中运行
 - 优点：查询速度快（<1ms），重启可恢复
 - 风险：内存占用随项目规模线性增长
 - 缓解：10万行代码项目估计 20-50MB 内存索引，可接受
+
+### ADR-005: 理解层旁观者架构
+
+**状态**：已接受
+
+**上下文**：AI coding agent（Cursor/Copilot/Claude Code 等）写代码速度远超人类审查吞吐量。Nodus 不应拦截或限速这些工具，而应为人类提供理解加速。
+
+**决策**：理解层以旁观者身份运行——只读 Git 和文件系统，不拦截 AI 工具行为，不写源码，不改 AI 工具配置。失败时静默降级，绝不让用户的编辑器或 REPL 卡住。所有计算异步执行，结果就绪才注入。
+
+**后果**：
+- 优点：与任何 AI 工具共存，零侵入；用户现有工作流不变
+- 风险：无法阻止 AI 产出高风险代码，只能事后标注
+- 缓解：conventions.md 反哺机制——让 AI 工具读取约定文件后少犯同样错；高风险变更通过热力图优先呈现
 
 ---
 

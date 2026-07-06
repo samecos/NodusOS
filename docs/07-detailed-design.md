@@ -826,6 +826,65 @@ enum StoreError {
 
 ---
 
+
+### 10. ChangeSensor（变更传感器）
+
+```typescript
+export interface ChangeSensor {
+  start(projectRoot: string): void;
+  stop(): void;
+  onBatch(handler: (batch: ChangeBatch) => void): () => void;
+  detect(projectRoot: string): Promise<ChangeBatch | null>;
+}
+```
+
+**ChangeBatch**：`{ id, project_root, detected_at, files[], symbols: ChangedSymbol[], snapshot: Record<string,string> }`
+
+### 11. DebtEngine（理解债引擎）
+
+```typescript
+export interface DebtEngine {
+  recompute(batch: ChangeBatch): Promise<void>;
+  getTopDebt(limit: number): DebtQueryResult[];
+  getDebtByFile(filePath: string): DebtQueryResult[];
+  markExamined(symbolId: string): void;
+  confirmReviewed(symbolId: string): void;
+  decay(): number;
+}
+```
+
+### 12. SemanticChunker（语义切片器）
+
+```typescript
+export interface SemanticChunker {
+  chunk(batch: ChangeBatch): SemanticChunk[];
+  brief(chunk: SemanticChunk, batch: ChangeBatch): BriefCard;
+}
+```
+
+### 13. AlignmentFlywheel（对齐飞轮）
+
+```typescript
+export interface AlignmentFlywheel {
+  capture(input: CorrectionCapture): void;
+  emitConventions(projectRoot: string): void;
+  listConventions(): Convention[];
+  prune(tag: string): boolean;
+}
+```
+
+### 14. AnnotatedView（带标注代码视图·P1 纯函数）
+
+```typescript
+function renderAnnotatedView(
+  filePath: string,
+  code: string,
+  debts: DebtQueryResult[],
+  briefs: BriefCard[],
+): string;
+```
+
+
 ## 二、数据库Schema
 
 SQLite数据库 `nodus.db`。存储于 `~/.nodus/` 目录下。
@@ -924,6 +983,56 @@ CREATE TABLE query_history (
     result_count INTEGER,
     timestamp TEXT NOT NULL DEFAULT (datetime('now'))
 );
+### 理解债表 `debt_entries` (v4)
+
+```sql
+CREATE TABLE debt_entries (
+    symbol_id      TEXT PRIMARY KEY,
+    file_path      TEXT NOT NULL,
+    debt           REAL NOT NULL,
+    change_recency REAL NOT NULL,
+    difficulty     REAL NOT NULL,
+    examined_at    INTEGER,
+    confirmed_at   INTEGER,
+    updated_at     INTEGER NOT NULL
+);
+CREATE INDEX idx_debt_file ON debt_entries(file_path);
+CREATE INDEX idx_debt_value ON debt_entries(debt DESC);
+```
+
+### 代码修正标注表 `code_annotations` (v5)
+
+```sql
+CREATE TABLE code_annotations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    ai_generated_code   TEXT NOT NULL,
+    human_modified_code TEXT NOT NULL,
+    diff                TEXT NOT NULL,
+    symbols_involved    TEXT,
+    annotation_tags     TEXT,
+    chunk_id            TEXT,
+    brief_field_hits    TEXT,
+    action              TEXT NOT NULL,
+    debt_at_review      REAL,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_code_anno_tags ON code_annotations(annotation_tags);
+CREATE INDEX idx_code_anno_symbol ON code_annotations(symbols_involved);
+```
+
+### 约定模式表 `conventions` (v6)
+
+```sql
+CREATE TABLE conventions (
+    tag             TEXT PRIMARY KEY,
+    pattern_desc    TEXT NOT NULL,
+    occurrences     INTEGER NOT NULL DEFAULT 0,
+    symbol_examples TEXT,
+    last_seen       INTEGER NOT NULL
+);
+```
+
+
 
 -- 训练标注表（v2，此处预定义）
 CREATE TABLE annotations (
