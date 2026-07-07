@@ -208,7 +208,13 @@ export type IntentType =
   | 'view_annotated'
   | 'chunk_brief'
   | 'confirm_reviewed'
-  | 'prune_conventions';
+  | 'prune_conventions'
+  | 'code_generation'
+  | 'cross_domain_debug'
+  | 'team_collab_share'
+  | 'team_collab_import'
+  | 'team_collab_annotate'
+  | 'team_collab_export';
 
 /** 变更范围 */
 export type ChangeScope =

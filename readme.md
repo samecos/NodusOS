@@ -54,8 +54,9 @@ auth模块最近一周改了什么
 | 最长调用链 | `最长调用链` |
 | 类型关系 | `谁实现了 IUserService` / `UserService 继承了哪些类` |
 | 代码评审 | `评审这段代码` / `检查最近变更` / `review commit abc1234` |
-| 代码生成与重构 | `重构 refundOrder 为 async` / `提取验证逻辑为新函数` |
+| 代码生成与重构 | `重构 refundOrder 为 async` / `提取验证逻辑为新函数` / `生成 payment.ts 的 diff` |
 | 跨域调试 | `解析这个错误日志` / `trace this error` |
+| 团队协作 | `导出项目索引` / `导入共享索引` / `给 refundOrder 添加注释` / `导出团队知识` |
 | 项目切换 | `切换到 /path/to/project` / `打开另一个项目` / `列出所有项目` |
 | AI 最近改了哪儿 | `AI 最近改了哪儿` / `最近有什么变更` |
 | 查看带标注的代码 | `查看 payment.ts` / `打开文件 payment` |
@@ -166,7 +167,7 @@ auth模块最近一周改了什么
 
 ### AI 代码生成与重构（R3.1）
 
-> 状态：模块已实现，尚未接入 REPL 主流程。
+> 状态：已接入 REPL 查询流程。
 
 基于代码库索引生成代码变更建议：
 - **重构操作**：
@@ -177,7 +178,13 @@ auth模块最近一周改了什么
 - **改进建议**：基于代码分析（死代码、复杂度、模块耦合）生成可操作建议
 - 输出格式遵循 git unified diff 规范
 
-> 当前可通过 `CodeGenerator` 模块以编程方式调用，REPL 自然语言触发将在后续版本接入。
+**REPL 触发示例：**
+```
+> 重构 refundOrder 为 async
+> 提取验证逻辑为新函数
+> 生成 payment.service.ts 的 diff
+> 给出代码改进建议
+```
 
 ### 代码评审助手（R3.2）
 
@@ -192,14 +199,18 @@ auth模块最近一周改了什么
 
 ### 跨域调试（R3.3）
 
-> 状态：模块已实现，尚未接入 REPL 主流程。
+> 状态：已接入 REPL 查询流程。
 
 关联日志输出与代码位置，支持跨文件/跨层的错误追踪：
 - **日志解析**：支持 Node.js/V8 stack traces、Python traceback、结构化 JSON 日志、常见框架日志格式（Express/NestJS/Django）
 - **错误追踪**：从日志错误自动追踪到代码位置，关联最近的符号定义和调用方
 - **代码关联**：`correlateLogWithCode` 将日志条目与代码索引关联，返回相关符号、调用方、相关度评分
 
-> 当前可通过 `CrossDomainDebugger` 模块以编程方式调用，REPL 自然语言触发将在后续版本接入。
+**REPL 触发示例：**
+```
+> 解析这个错误日志 TypeError: Cannot read property 'x' of undefined at func (src/app.ts:42:10)
+> trace this error
+```
 
 ### 训练标注飞轮（R3.4）
 
@@ -219,7 +230,7 @@ auth模块最近一周改了什么
 
 ### 团队协作（R3.6）
 
-> 状态：模块已实现，尚未接入 REPL 主流程；团队注释与 SQLite annotations 表尚未打通。
+> 状态：已接入 REPL 查询流程；团队注释仍写入独立 JSON 文件，与 SQLite annotations 表尚未打通。
 
 支持项目级语义索引与注释共享：
 - **导出索引**：`shareIndex(projectPath)` 导出项目符号、引用为 JSON 共享格式
@@ -227,7 +238,13 @@ auth模块最近一周改了什么
 - **符号注释**：`addAnnotation` 在符号上添加团队注释（当前写入独立 JSON 文件）
 - **导出团队知识**：`exportTeamKnowledge()` 合并项目索引与团队注释为知识包
 
-> 当前可通过 `TeamCollaboration` 模块以编程方式调用，REPL 查询将在后续版本接入。
+**REPL 触发示例：**
+```
+> 导出项目索引
+> 导入共享索引 { "version": "1.0", ... }
+> 给 refundOrder 添加注释 "需要校验 order 状态"
+> 导出团队知识
+```
 
 ### 人与 AI 代码产出对齐：理解层（R4.1）
 
@@ -269,7 +286,7 @@ auth模块最近一周改了什么
 - **智能合并**：`importSyncData` 支持 merge 模式（去重合并）和 overwrite 模式（全量覆盖）
 - **版本控制**：数据包格式版本号（当前 v1），未来可平滑升级
 
-> 当前可通过 `DeviceSync` 模块以编程方式调用，REPL `/sync` 命令将在后续版本接入。
+> 当前可通过 REPL `/sync` 命令或 `DeviceSync` 模块以编程方式调用。
 
 ### 语言插件化（R3.8）
 
@@ -339,6 +356,7 @@ Nodus is ready. Type a query or /quit to exit.
 | `/sync` | 手动触发多设备同步 |
 | `/confirm <符号名>` | 确认符号审查完成，债值清零 |
 | `/prune [tag]` | 列出约定 / 删除指定约定 |
+| *(自然语言)* | `重构 refundOrder 为 async` / `解析这个错误日志` / `导出项目索引` |
 | *(空行)* | 显示推荐查询，输入序号即可执行 |
 
 ### 配置文件
@@ -549,7 +567,7 @@ Human Input (Voice/Text)
 ## TDD Development
 
 ```bash
-npm test              # 运行全部 459 个测试
+npm test              # 运行全部 472 个测试
 npm run test:watch    # 监听模式
 npm run typecheck     # TypeScript 检查
 ```
@@ -640,15 +658,14 @@ npm test
 - [x] R2.8 多项目快速切换（自然语言打开/切换项目）
 
 #### v2.0 能力扩展
+- [x] R3.1 AI 代码生成与重构（基于索引生成 diff 卡片，已接入 REPL）
 - [x] R3.2 代码评审助手（基于 Git diff + 符号索引生成摘要与风险点）
-- [x] R3.3 跨域调试（日志+代码关联）
+- [x] R3.3 跨域调试（日志+代码关联，已接入 REPL）
 - [x] R3.4 训练标注飞轮（AI 生成结果写入 `annotations` 表）
 - [x] R3.5 外部服务环境管理（DB / Redis / Docker 检测与启动）
+- [x] R3.6 团队协作（项目级语义索引与注释共享，已接入 REPL）
+- [x] R3.7 多设备同步（查询历史、偏好、项目列表，REPL `/sync` 已接入）
 - [x] R3.8 新语言支持插件化（Rust / Go / Java 等通过插件接入）
-
-### P2 — 远期
-- [x] R3.6 团队协作（项目级语义索引与注释共享）
-- [x] R3.7 多设备同步（查询历史、偏好、项目列表）
 
 ### P1.5 — 理解层（人与 AI 代码产出对齐）
 - [x] R4.1 理解层 P1（ChangeSensor + DebtEngine + SemanticChunker + AlignmentFlywheel + AnnotatedView + REPL 接入）

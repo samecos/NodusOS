@@ -33,6 +33,12 @@ export interface IntentEntity {
   relationshipKind?: 'subclasses' | 'implementations' | 'type_uses';
   /** 代码评审意图的 commit hash */
   commitHash?: string;
+  /** 代码生成意图的自然语言描述 */
+  description?: string;
+  /** 跨域调试意图的日志文本 */
+  logText?: string;
+  /** 团队协作注释/导入的内容 */
+  content?: string;
 }
 
 export interface QueryIntent {

@@ -105,6 +105,10 @@ async function main() {
   chunk 1 简报
   确认 refundOrder 已审查
   列出约定
+  重构 refundOrder 为 async
+  解析这个错误日志
+  导出项目索引
+  给 refundOrder 添加注释
 `);
       continue;
     }
@@ -134,6 +138,22 @@ async function main() {
   历史与评审
     变更历史        auth模块最近一周改了什么
     代码评审        评审 commit abc1234
+
+  代码生成与重构
+    重构符号        重构 refundOrder 为 async
+    提取函数        提取验证逻辑为新函数
+    生成 diff       生成 payment.ts 的 diff
+    改进建议        给出代码改进建议
+
+  跨域调试
+    解析日志        解析这个错误日志
+    trace error     trace this error
+
+  团队协作
+    导出索引        导出项目索引
+    导入索引        导入共享索引
+    添加注释        给 refundOrder 添加注释
+    导出团队知识    导出团队知识
 
   项目管理
     切换项目        切换到 /path/to/project

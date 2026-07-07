@@ -21,6 +21,10 @@ import { QueryCache } from './query-cache.js';
 import { RecommendationEngine } from './recommendation-engine.js';
 import { DefaultDeviceSync } from '../sync/device-sync.impl.js';
 import { DefaultChangeSensor } from '../change-sensor/change-sensor.impl.js';
+import { CodeGeneratorImpl } from '../code-gen/code-generator.impl.js';
+import { CrossDomainDebuggerImpl } from '../debug/cross-domain-debugger.impl.js';
+import { TeamCollaborationImpl } from '../collab/team-collaboration.impl.js';
+import { DefaultCodeAnalytics } from '../code-intel/code-analytics.impl.js';
 import { DebtEngineImpl } from '../understanding-debt/debt-engine.impl.js';
 import { SemanticChunkerImpl } from '../semantic-chunk/semantic-chunker.impl.js';
 import { AlignmentFlywheelImpl } from '../alignment/alignment-flywheel.impl.js';
@@ -38,6 +42,9 @@ import type { IntentEngine, QueryIntent } from '../intent/intent-engine.js';
 import type { QueryResult } from '../code-intel/code-intelligence.js';
 import type { VoicePipeline } from '../voice/voice-pipeline.js';
 import type { ConfigManager, NodusConfig } from '../common/config.js';
+import type { CodeGenerator } from '../code-gen/code-generator.js';
+import type { CrossDomainDebugger } from '../debug/cross-domain-debugger.js';
+import type { TeamCollaboration } from '../collab/team-collaboration.js';
 import { basename, resolve } from 'node:path';
 
 export { type NodusConfig } from '../common/config.js';
@@ -66,6 +73,9 @@ export class NodusShell {
   readonly debtEngine: DebtEngineImpl;
   readonly chunker: SemanticChunkerImpl;
   readonly flywheel: AlignmentFlywheelImpl;
+  readonly codeGenerator: CodeGenerator;
+  readonly debugger: CrossDomainDebugger;
+  readonly teamCollab: TeamCollaboration;
 
   private configManager: ConfigManager;
   private config: NodusConfig;
@@ -118,6 +128,18 @@ export class NodusShell {
     this.modules.set('debt_engine', this.debtEngine);
     this.modules.set('chunker', this.chunker);
     this.modules.set('flywheel', this.flywheel);
+
+    // Phase 6: 已接入 REPL 的扩展能力
+    this.codeGenerator = new CodeGeneratorImpl(
+      this.store,
+      this.codeIntel,
+      new DefaultCodeAnalytics(this.store, this.config.projectPaths[0] ?? process.cwd()),
+    );
+    this.debugger = new CrossDomainDebuggerImpl();
+    this.teamCollab = new TeamCollaborationImpl();
+    this.modules.set('code_generator', this.codeGenerator);
+    this.modules.set('debugger', this.debugger);
+    this.modules.set('team_collab', this.teamCollab);
 
     // 注册模块到 registry
     this.modules.set('store', this.store);
@@ -527,6 +549,152 @@ export class NodusShell {
         return this.uiRenderer.render({ kind: 'confirmation', message: deleted ? `已删除约定: ${tag}` : `未找到约定: ${tag}` });
       }
 
+      // 代码生成与重构
+      if (intent.intentType === 'code_generation') {
+        this.contextMgr.recordQuery(text, intent.intentType);
+        const description = intent.entities.description ?? text;
+        const symbolName = intent.entities.symbolName ?? this.contextMgr.snapshot().cursor_symbol ?? '';
+        const activeFile = this.contextMgr.snapshot().active_file ?? '';
+        const projectRoot = this.config.projectPaths[0] ?? '.';
+        const targetFile = intent.entities.filePath
+          ? resolve(projectRoot, intent.entities.filePath)
+          : activeFile;
+
+        let changes: import('../common/types.js').CodeChange[] = [];
+
+        if (symbolName && /重构|refactor|rename|重命名|改写|rewrite/.test(description)) {
+          const syms = await this.codeIntel.findSymbol(symbolName, undefined, undefined, 1);
+          if (syms[0]) {
+            const match = description.match(/(?:rename|重命名|改为|改成|to)\s+(\w+)/i);
+            const newName = match?.[1] ?? `${symbolName}V2`;
+            changes = await this.codeGenerator.generateRefactoring({
+              type: 'rename',
+              symbolId: syms[0].id,
+              newName,
+            });
+          }
+        } else if (symbolName && /提取|extract/.test(description)) {
+          const syms = await this.codeIntel.findSymbol(symbolName, undefined, undefined, 1);
+          if (syms[0]) {
+            changes = await this.codeGenerator.generateRefactoring({
+              type: 'extract_function',
+              symbolId: syms[0].id,
+              newName: 'extractedHelper',
+              sourceCode: syms[0].location.file_path ? readFileSync(syms[0].location.file_path, 'utf-8') : undefined,
+              startLine: syms[0].location.line_start,
+              endLine: syms[0].location.line_end,
+              targetFile: syms[0].location.file_path,
+            });
+          }
+        } else if (targetFile) {
+          changes = await this.codeGenerator.generateDiff({ filePath: targetFile, description });
+        }
+
+        if (changes.length === 0) {
+          changes = (await this.codeGenerator.suggestImprovements(targetFile || undefined)).map(s => ({
+            file_path: s.targetSymbol?.location.file_path ?? targetFile ?? '',
+            change_type: 'modified' as const,
+            diff_text: `[${s.severity}] ${s.type}: ${s.message}`,
+          }));
+        }
+
+        const result: import('../code-intel/code-intelligence.js').QueryResult = { kind: 'code_generation', changes };
+        this.queryCache.set(cacheKey, this.uiRenderer.render(result));
+        this.setBreathLight('idle');
+        return this.uiRenderer.render(result);
+      }
+
+      // 跨域调试
+      if (intent.intentType === 'cross_domain_debug') {
+        this.contextMgr.recordQuery(text, intent.intentType);
+        const logText = intent.entities.logText ?? text;
+        const lines = logText.split(/\r?\n/).filter(l => l.trim());
+        const entries: import('../debug/cross-domain-debugger.js').LogEntry[] = [];
+        for (const line of lines) {
+          const entry = this.debugger.parseLogLine(line);
+          if (entry) entries.push(entry);
+        }
+
+        if (entries.length === 0) {
+          this.setBreathLight('idle');
+          return `${YELLOW}未能从输入中解析出日志/堆栈信息。${RESET}\n`;
+        }
+
+        const trace = this.debugger.traceError(entries);
+        const correlated = await this.debugger.correlateLogWithCode(entries[0]!, this.codeIntel);
+        const result: import('../code-intel/code-intelligence.js').QueryResult = { kind: 'cross_domain_debug', trace, correlated };
+        this.queryCache.set(cacheKey, this.uiRenderer.render(result));
+        this.setBreathLight('idle');
+        return this.uiRenderer.render(result);
+      }
+
+      // 团队协作
+      if (intent.intentType === 'team_collab_share') {
+        this.contextMgr.recordQuery(text, intent.intentType);
+        const projectRoot = this.config.projectPaths[0] ?? '.';
+        const json = await this.teamCollab.shareIndex(projectRoot, this.store);
+        const result: import('../code-intel/code-intelligence.js').QueryResult = { kind: 'team_collab', action: 'share_index', result: json };
+        this.queryCache.set(cacheKey, this.uiRenderer.render(result));
+        this.setBreathLight('idle');
+        return this.uiRenderer.render(result);
+      }
+
+      if (intent.intentType === 'team_collab_import') {
+        this.contextMgr.recordQuery(text, intent.intentType);
+        const json = intent.entities.content ?? '';
+        if (!json) {
+          this.setBreathLight('idle');
+          return `${YELLOW}请提供要导入的共享索引 JSON，例如粘贴 \`{\n  \"version\": \"1.0\"...\n}\`。${RESET}\n`;
+        }
+        const stats = await this.teamCollab.importSharedIndex(json, this.store);
+        const result: import('../code-intel/code-intelligence.js').QueryResult = {
+          kind: 'team_collab',
+          action: 'import_index',
+          result: `已导入: ${stats.symbols} 个符号, ${stats.references} 条引用, ${stats.annotations} 条注释`,
+        };
+        this.queryCache.set(cacheKey, this.uiRenderer.render(result));
+        this.setBreathLight('idle');
+        return this.uiRenderer.render(result);
+      }
+
+      if (intent.intentType === 'team_collab_annotate') {
+        this.contextMgr.recordQuery(text, intent.intentType);
+        const symbolName = intent.entities.symbolName ?? '';
+        const content = intent.entities.content ?? '';
+        if (!symbolName || !content) {
+          this.setBreathLight('idle');
+          return `${YELLOW}请指定符号名和注释内容，例如：给 refundOrder 添加注释 "需要校验 order 状态"。${RESET}\n`;
+        }
+        const syms = await this.codeIntel.findSymbol(symbolName, undefined, undefined, 1);
+        if (!syms[0]) {
+          this.setBreathLight('idle');
+          return `${YELLOW}未找到符号: ${symbolName}${RESET}\n`;
+        }
+        await this.teamCollab.addAnnotation({
+          symbol_id: syms[0].id,
+          content,
+          author: process.env.USER ?? 'nodus-user',
+        });
+        const result: import('../code-intel/code-intelligence.js').QueryResult = {
+          kind: 'team_collab',
+          action: 'add_annotation',
+          result: `已为 ${symbolName} 添加注释`,
+        };
+        this.queryCache.set(cacheKey, this.uiRenderer.render(result));
+        this.setBreathLight('idle');
+        return this.uiRenderer.render(result);
+      }
+
+      if (intent.intentType === 'team_collab_export') {
+        this.contextMgr.recordQuery(text, intent.intentType);
+        const projectRoot = this.config.projectPaths[0] ?? '.';
+        const json = await this.teamCollab.exportTeamKnowledge(projectRoot, this.store);
+        const result: import('../code-intel/code-intelligence.js').QueryResult = { kind: 'team_collab', action: 'export_team_knowledge', result: json };
+        this.queryCache.set(cacheKey, this.uiRenderer.render(result));
+        this.setBreathLight('idle');
+        return this.uiRenderer.render(result);
+      }
+
       this.contextMgr.recordQuery(text, intent.intentType);
       const queryResult = await this.codeIntel.query(intent);
       this.eventBus.emit({ kind: 'query:result', result: queryResult });
@@ -694,6 +862,14 @@ export class NodusShell {
         return result.report.directCallers.length;
       case 'change_history':
         return result.records.length;
+      case 'review_report':
+        return result.report.comments.length;
+      case 'code_generation':
+        return result.changes.length;
+      case 'cross_domain_debug':
+        return result.trace.stackFrames.length;
+      case 'team_collab':
+        return result.result.length;
       default:
         return 0;
     }

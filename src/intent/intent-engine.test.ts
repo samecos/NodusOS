@@ -307,6 +307,42 @@ describe('IntentEngine', () => {
     }
   });
 
+  // 扩展能力意图测试
+  it('TC-UT-IE-036: should parse code_generation intent "重构 refundOrder 为 async"', () => {
+    const result = engine.parse({ source: 'text', text: '重构 refundOrder 为 async', locale: 'zh-CN' }, emptyContext);
+    expect(result).not.toHaveProperty('kind');
+    if (!('kind' in result)) {
+      expect(result.intentType).toBe('code_generation');
+      expect(result.entities.symbolName).toBe('refundOrder');
+    }
+  });
+
+  it('TC-UT-IE-037: should parse cross_domain_debug intent "解析这个错误日志"', () => {
+    const result = engine.parse({ source: 'text', text: '解析这个错误日志', locale: 'zh-CN' }, emptyContext);
+    expect(result).not.toHaveProperty('kind');
+    if (!('kind' in result)) {
+      expect(result.intentType).toBe('cross_domain_debug');
+    }
+  });
+
+  it('TC-UT-IE-038: should parse team_collab_share intent "导出项目索引"', () => {
+    const result = engine.parse({ source: 'text', text: '导出项目索引', locale: 'zh-CN' }, emptyContext);
+    expect(result).not.toHaveProperty('kind');
+    if (!('kind' in result)) {
+      expect(result.intentType).toBe('team_collab_share');
+    }
+  });
+
+  it('TC-UT-IE-039: should parse team_collab_annotate intent "给 refundOrder 添加注释"', () => {
+    const result = engine.parse({ source: 'text', text: '给 refundOrder 添加注释 "需要校验"', locale: 'zh-CN' }, emptyContext);
+    expect(result).not.toHaveProperty('kind');
+    if (!('kind' in result)) {
+      expect(result.intentType).toBe('team_collab_annotate');
+      expect(result.entities.symbolName).toBe('refundOrder');
+      expect(result.entities.content).toBe('需要校验');
+    }
+  });
+
   // ==========================================================
   // R2.7 学习闭环测试
   // ==========================================================

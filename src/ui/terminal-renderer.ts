@@ -72,6 +72,12 @@ export class TerminalRenderer implements UIRenderer {
         return this.renderConventionsList(result.conventions);
       case 'confirmation':
         return `${GREEN}${result.message}${RESET}`;
+      case 'code_generation':
+        return this.renderCodeGeneration(result.changes);
+      case 'cross_domain_debug':
+        return this.renderCrossDomainDebug(result.trace, result.correlated);
+      case 'team_collab':
+        return this.renderTeamCollab(result.action, result.result);
       default:
         return JSON.stringify(result, null, 2);
     }
@@ -621,6 +627,60 @@ export class TerminalRenderer implements UIRenderer {
     return out;
   }
 
+  private renderCodeGeneration(changes: import('../common/types.js').CodeChange[]): string {
+    if (changes.length === 0) return `${DIM}未生成任何变更建议。${RESET}\n`;
+    let out = `${BOLD}代码生成建议${RESET}\n`;
+    for (const change of changes) {
+      out += `\n  ${c(change.file_path, BLUE)} ${c(`[${change.change_type}]`, YELLOW)}\n`;
+      out += change.diff_text.split('\n').map(l => `    ${l}`).join('\n') + '\n';
+    }
+    return out;
+  }
+
+  private renderCrossDomainDebug(
+    trace: import('../debug/cross-domain-debugger.js').ErrorTrace,
+    correlated: import('../debug/cross-domain-debugger.js').CorrelatedResult,
+  ): string {
+    let out = `${BOLD}错误追踪${RESET}\n`;
+    if (trace.errorType) out += `  类型: ${c(trace.errorType, RED)}\n`;
+    if (trace.errorMessage) out += `  消息: ${trace.errorMessage}\n`;
+    if (trace.rootCause) out += `  根因: ${c(trace.rootCause, YELLOW)}\n`;
+    if (trace.stackFrames.length > 0) {
+      out += `  堆栈:\n`;
+      for (const frame of trace.stackFrames) {
+        const fn = frame.functionName ? `${frame.functionName} @ ` : '';
+        out += `    ${fn}${c(`${frame.filePath}:${frame.line}`, BLUE)}\n`;
+      }
+    }
+    if (correlated.sourceLocation) {
+      out += `  关联位置: ${c(`${correlated.sourceLocation.file_path}:${correlated.sourceLocation.line_start}`, BLUE)}\n`;
+    }
+    if (correlated.suggestedSymbols.length > 0) {
+      out += `  相关符号:\n`;
+      for (const sym of correlated.suggestedSymbols) {
+        out += `    ${c(sym.name, BOLD)} ${DIM}[${sym.kind}]${RESET} ${c(`${sym.location.file_path}:${sym.location.line_start}`, BLUE)}\n`;
+      }
+    }
+    return out;
+  }
+
+  private renderTeamCollab(action: string, result: string): string {
+    const actionLabel: Record<string, string> = {
+      share_index: '项目索引',
+      import_index: '导入共享索引',
+      add_annotation: '添加注释',
+      export_team_knowledge: '团队知识包',
+    };
+    const label = actionLabel[action] ?? action;
+    let out = `${BOLD}${label}${RESET}\n`;
+    if (action === 'share_index' || action === 'export_team_knowledge') {
+      out += `\n${c(result, DIM)}\n`;
+    } else {
+      out += `  ${result}\n`;
+    }
+    return out;
+  }
+
   private renderNodusErrorCard(error: NodusError, module: string): string {
     const suggestion = getDegradationSuggestion(error.code);
     let out = c('\n⚠ 运行降级提示', YELLOW) + '\n';
@@ -652,7 +712,7 @@ export class TerminalRenderer implements UIRenderer {
       }
       if (['symbol_list', 'reference_list', 'call_graph', 'impact_report', 'change_history', 'symbol_overview',
            'symbol_ranking', 'module_coupling', 'call_chain', 'todo_list', 'stats_report', 'change_heat',
-           'type_relationship_list', 'review_report'].includes(k)) {
+           'type_relationship_list', 'review_report', 'code_generation', 'cross_domain_debug', 'team_collab'].includes(k)) {
         return k as Card['kind'];
       }
       if (['empty_input', 'unparseable', 'ambiguous', 'unsupported'].includes(k)) {

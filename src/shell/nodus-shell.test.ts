@@ -486,4 +486,46 @@ describe('NodusShell', () => {
     expect(data.projects.length).toBeGreaterThan(0);
     expect(data.exportedAt).toBeDefined();
   });
+
+  // TC-UT-SH-022: 代码生成意图应返回变更建议
+  it('TC-UT-SH-022: should handle code_generation intent', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    currentConfigManager = new JsonConfigManager(join(currentTmpDir, 'config.json'));
+    currentConfigManager.set('projectPaths', [tinyProjectPath]);
+    currentConfigManager.set('dbPath', ':memory:');
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    const result = await shell.handleQueryFormatted('给出代码改进建议');
+    expect(result).toBeDefined();
+    expect(result).toContain('代码生成建议');
+  });
+
+  // TC-UT-SH-023: 跨域调试意图应返回错误追踪结果
+  it('TC-UT-SH-023: should handle cross_domain_debug intent', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    currentConfigManager = new JsonConfigManager(join(currentTmpDir, 'config.json'));
+    currentConfigManager.set('projectPaths', [tinyProjectPath]);
+    currentConfigManager.set('dbPath', ':memory:');
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    const result = await shell.handleQueryFormatted('解析这个错误日志 TypeError: x at func (src/app.ts:42:10)');
+    expect(result).toBeDefined();
+    expect(result).toContain('错误追踪');
+  });
+
+  // TC-UT-SH-024: 团队协作导出意图应返回 JSON
+  it('TC-UT-SH-024: should handle team_collab_share intent', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    currentConfigManager = new JsonConfigManager(join(currentTmpDir, 'config.json'));
+    currentConfigManager.set('projectPaths', [tinyProjectPath]);
+    currentConfigManager.set('dbPath', ':memory:');
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    const result = await shell.handleQueryFormatted('导出项目索引');
+    expect(result).toBeDefined();
+    expect(result).toContain('项目索引');
+  });
 });

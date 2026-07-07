@@ -7,7 +7,7 @@ import type {
   Symbol, SymbolId, SymbolKind, Language,
   Reference, CallGraph, CallDirection,
   IndexStatus, QueryHistoryEntry,
-  ChangeScope, IntentType, RiskLevel,
+  ChangeScope, IntentType, RiskLevel, CodeChange,
 } from '../common/types.js';
 import type { SymbolMetric, ModuleCoupling, CallChain, TodoComment } from './code-analytics.js';
 import type { ReviewReport } from '../code-review/code-reviewer.js';
@@ -101,7 +101,10 @@ export type QueryResult =
   | { kind: 'annotated_view'; filePath: string; content: string; output: string }
   | { kind: 'brief_card'; brief: import('../common/types.js').BriefCard }
   | { kind: 'conventions_list'; conventions: import('../common/types.js').Convention[] }
-  | { kind: 'confirmation'; message: string };
+  | { kind: 'confirmation'; message: string }
+  | { kind: 'code_generation'; changes: CodeChange[] }
+  | { kind: 'cross_domain_debug'; trace: import('../debug/cross-domain-debugger.js').ErrorTrace; correlated: import('../debug/cross-domain-debugger.js').CorrelatedResult }
+  | { kind: 'team_collab'; action: string; result: string };
 
 // ---- Main interface ----
 

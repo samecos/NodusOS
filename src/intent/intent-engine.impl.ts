@@ -93,6 +93,17 @@ export class PatternIntentEngine implements IntentEngine {
     { text: '模块简报', intentType: 'chunk_brief' },
     { text: '确认 xxx 已审查', intentType: 'confirm_reviewed', entityHint: 'symbol' },
     { text: '列出约定', intentType: 'prune_conventions' },
+    // 代码生成与重构
+    { text: '重构 xxx 为 async', intentType: 'code_generation', entityHint: 'symbol' },
+    { text: '提取 xxx 为新函数', intentType: 'code_generation', entityHint: 'symbol' },
+    { text: '生成 xxx 的 diff', intentType: 'code_generation', entityHint: 'symbol' },
+    // 跨域调试
+    { text: '解析这个错误日志', intentType: 'cross_domain_debug' },
+    { text: 'trace this error', intentType: 'cross_domain_debug' },
+    // 团队协作
+    { text: '导出项目索引', intentType: 'team_collab_export' },
+    { text: '导入共享索引', intentType: 'team_collab_import' },
+    { text: '给 xxx 添加注释', intentType: 'team_collab_annotate', entityHint: 'symbol' },
   ];
 
   /** 从 feedback.jsonl 学习到的例句列表 */
@@ -444,6 +455,67 @@ export class PatternIntentEngine implements IntentEngine {
           commitHash: this.extractCommitHash(text) ?? undefined,
         }),
       },
+      // 代码生成与重构
+      {
+        patterns: [
+          /(?:重构|refactor|改写|rewrite|转换|convert|改为|改成)\s+(.+?)(?:为|成|to)?\s*(.+)/i,
+          /(?:提取|extract)\s+(.+?)(?:为|成|作为|为新的|成新的)?\s*(.+?)(?:函数|function|变量|variable)?/i,
+          /(?:生成|generate)\s+(.+?)(?:的)?\s*(?:diff|补丁|patch|变更|改动|重构)/i,
+          /(?:make|把)\s+(.+?)\s*(?:async|异步)/i,
+          /(?:改进|优化|优化建议|改进建议|improve|suggest|refactor)\s*(?:代码|建议|代码库|项目)?/i,
+        ],
+        intentType: 'code_generation',
+        extractEntities: (match, text, ctx) => ({
+          symbolName: this.extractSymbolName(text) ?? ctx.cursor_symbol ?? undefined,
+          description: text,
+        }),
+      },
+      // 跨域调试
+      {
+        patterns: [
+          /(?:解析|分析|trace|debug|调试)\s*(?:这个|以下|这段)?\s*(?:错误|error|日志|log|stack|trace)/i,
+          /(?:trace|debug)\s+(?:this\s+)?error/i,
+          /(?:parse|analyze)\s+(?:this\s+)?log/i,
+        ],
+        intentType: 'cross_domain_debug',
+        extractEntities: (_, text) => ({
+          logText: text,
+        }),
+      },
+      // 团队协作
+      {
+        patterns: [
+          /(?:导出|export|分享|share)\s*(?:项目|团队)?\s*(?:索引|index|知识|knowledge)/i,
+        ],
+        intentType: 'team_collab_share',
+        extractEntities: () => ({}),
+      },
+      {
+        patterns: [
+          /(?:导入|import)\s*(?:共享|shared)?\s*(?:索引|index|知识|knowledge)/i,
+        ],
+        intentType: 'team_collab_import',
+        extractEntities: (_, text) => ({
+          content: this.extractJsonContent(text) ?? undefined,
+        }),
+      },
+      {
+        patterns: [
+          /(?:给|为|对)\s+(.+?)\s*(?:添加|加|写|添加一条)?\s*(?:注释|annotation|备注|note)/i,
+        ],
+        intentType: 'team_collab_annotate',
+        extractEntities: (match, text, ctx) => ({
+          symbolName: this.extractSymbolName(text) ?? ctx.cursor_symbol ?? undefined,
+          content: this.extractAnnotationContent(text) ?? undefined,
+        }),
+      },
+      {
+        patterns: [
+          /(?:导出|export)\s*(?:团队|team)?\s*(?:知识|knowledge|注释|annotations)/i,
+        ],
+        intentType: 'team_collab_export',
+        extractEntities: () => ({}),
+      },
       {
         patterns: [
           /(.+?)(?:里有哪些|有哪些|里面有什么|what'?s in|symbols in|contains|导出)/i,
@@ -547,7 +619,7 @@ export class PatternIntentEngine implements IntentEngine {
           // 类型关系必须能提取到符号名，否则继续匹配后续规则（避免误吞 analytics 等聚合意图）
           if (rule.intentType === 'type_relationships' && !entities.symbolName) continue;
           // 聚合类意图（list_symbols / stats / analytics / list_projects / code_review）模式本身足够明确，直接给高置信度
-          const aggregateIntent = rule.intentType === 'list_symbols' || rule.intentType === 'stats' || rule.intentType === 'analytics' || rule.intentType === 'list_projects' || rule.intentType === 'code_review' || rule.intentType === 'recent_changes' || rule.intentType === 'prune_conventions' || rule.intentType === 'chunk_brief';
+          const aggregateIntent = rule.intentType === 'list_symbols' || rule.intentType === 'stats' || rule.intentType === 'analytics' || rule.intentType === 'list_projects' || rule.intentType === 'code_review' || rule.intentType === 'recent_changes' || rule.intentType === 'prune_conventions' || rule.intentType === 'chunk_brief' || rule.intentType === 'cross_domain_debug' || rule.intentType === 'code_generation' || rule.intentType === 'team_collab_share' || rule.intentType === 'team_collab_import' || rule.intentType === 'team_collab_annotate' || rule.intentType === 'team_collab_export';
           const hasEntity = entities.symbolName || entities.filePath || entities.moduleName || entities.projectPath || entities.commitHash ||
                             entities.subType || (entities.filter && Object.keys(entities.filter).length > 0);
           const confidence = aggregateIntent || hasEntity ? 0.92 : 0.65;
@@ -823,6 +895,22 @@ export class PatternIntentEngine implements IntentEngine {
     return match?.[1] ?? null;
   }
 
+  private extractJsonContent(text: string): string | null {
+    // 匹配 ```json ... ``` 或单行 JSON 对象/数组
+    const codeBlock = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (codeBlock) return codeBlock[1]!.trim();
+    const inline = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    return inline?.[1]?.trim() ?? null;
+  }
+
+  private extractAnnotationContent(text: string): string | null {
+    // 提取引号或冒号后的注释内容，例如：给 refundOrder 添加注释 "需要校验"
+    const quoted = text.match(/["']([^"']+)["']/);
+    if (quoted) return quoted[1]!;
+    const afterColon = text.match(/[:：]\s*(.+)/);
+    return afterColon?.[1]?.trim() ?? null;
+  }
+
   // ---- 学习闭环辅助 ----
 
   private isValidIntentType(type: string): boolean {
@@ -833,6 +921,8 @@ export class PatternIntentEngine implements IntentEngine {
       'switch_project', 'list_projects',
       'recent_changes', 'view_annotated', 'chunk_brief',
       'confirm_reviewed', 'prune_conventions',
+      'code_generation', 'cross_domain_debug',
+      'team_collab_share', 'team_collab_import', 'team_collab_annotate', 'team_collab_export',
     ];
     return (valid as string[]).includes(type);
   }
