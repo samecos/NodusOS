@@ -85,6 +85,15 @@ requires-python = ">=3.12"
     expect(meta.languages).toContain('python');
   });
 
+  // TC-UT-EM-006: 识别 C++ 项目
+  it('TC-UT-EM-006: should detect C++ project', async () => {
+    writeFileSync(join(testDir, 'CMakeLists.txt'), 'cmake_minimum_required(VERSION 3.10)\n');
+    writeFileSync(join(testDir, 'main.cpp'), 'int main() { return 0; }\n');
+
+    const meta = await em.detectProject(testDir);
+    expect(meta.languages).toContain('cpp');
+  });
+
   // TC-UT-EM-007~009: 包管理器检测
   it('should detect pnpm', () => {
     writeFileSync(join(testDir, 'pnpm-lock.yaml'), '');

@@ -232,6 +232,7 @@ export class NodusShell {
       const exts = meta.languages.flatMap(l => {
         if (l === 'typescript' || l === 'javascript') return ['*.ts', '*.tsx', '*.js', '*.jsx'];
         if (l === 'python') return ['*.py'];
+        if (l === 'cpp') return ['*.cpp', '*.cc', '*.cxx', '*.hpp', '*.h'];
         return [];
       });
       await this.fileWatcher.watch(projectPath, exts);

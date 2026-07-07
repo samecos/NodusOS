@@ -2,7 +2,7 @@
 // EnvironmentManager 实现
 // ============================================================
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
 import { platform } from 'node:os';
@@ -87,6 +87,18 @@ export class EnvironmentManagerImpl implements EnvironmentManager {
       packageManager = 'pip';
     }
 
+    // ---- C/C++ ----
+    // 通过 CMakeLists.txt 或源码文件判断是否为 C++ 项目
+    const cppExts = ['.cpp', '.cc', '.cxx', '.hpp', '.h'];
+    const hasCppMarker = existsSync(join(path, 'CMakeLists.txt')) ||
+      readdirSync(path, { withFileTypes: true })
+        .some(e => e.isFile() && cppExts.some(ext => e.name.endsWith(ext)));
+    if (hasCppMarker) {
+      languages.push('cpp');
+      const cppVersion = this.detectCppVersion();
+      runtimes.push({ language: 'cpp', constraint: `>=${cppVersion}`, specified_in: 'system' });
+    }
+
     // 如果没有识别到任何语言
     if (languages.length === 0) {
       throw new EnvError(EnvError.UNKNOWN_PROJECT_TYPE, `Unknown project type at ${path}`);
@@ -113,6 +125,19 @@ export class EnvironmentManagerImpl implements EnvironmentManager {
       } else if (language === 'python') {
         const parts = execSync('python3 --version', { encoding: 'utf-8' }).trim().split(' ');
         if (parts.length >= 2) versionOutput = parts[1];
+      } else if (language === 'cpp') {
+        try {
+          const out = execSync('g++ --version', { encoding: 'utf-8' }).trim();
+          const match = out.match(/(\d+\.\d+\.\d+)/);
+          versionOutput = match ? match[1] : '';
+        } catch {
+          try {
+            const out = execSync('clang++ --version', { encoding: 'utf-8' }).trim();
+            const match = out.match(/(\d+\.\d+\.\d+)/);
+            versionOutput = match ? match[1] : '';
+          } catch { /* empty */ }
+        }
+        if (!versionOutput) return { kind: 'not_installed', required: cleanReq };
       } else {
         return { kind: 'not_installed', required: cleanReq };
       }
@@ -147,6 +172,11 @@ export class EnvironmentManagerImpl implements EnvironmentManager {
         await this.installNodeRuntime(major);
       } else if (language === 'python') {
         await this.installPythonRuntime(major);
+      } else if (language === 'cpp') {
+        // C++ 编译器由系统包管理器提供，当前仅做检测和提示
+        if (!this.hasCommand('g++') && !this.hasCommand('clang++')) {
+          console.log('[EnvMgr] C++ compiler (g++ or clang++) not found — please install via system package manager.');
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -622,6 +652,24 @@ export class EnvironmentManagerImpl implements EnvironmentManager {
         return execSync('python --version', { encoding: 'utf-8', stdio: 'pipe' }).trim().split(' ')[1] ?? null;
       } catch { return null; }
     }
+  }
+
+  private detectCppVersion(): string {
+    try {
+      const output = execSync('g++ --version', { encoding: 'utf-8', stdio: 'pipe' }).trim();
+      const match = output.match(/(\d+\.\d+\.\d+)/);
+      if (match) return match[1];
+    } catch {
+      // fallthrough
+    }
+    try {
+      const output = execSync('clang++ --version', { encoding: 'utf-8', stdio: 'pipe' }).trim();
+      const match = output.match(/(\d+\.\d+\.\d+)/);
+      if (match) return match[1];
+    } catch {
+      // fallthrough
+    }
+    return '1.0.0';
   }
 
   private parsePackageCount(output: string): number {

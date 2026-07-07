@@ -31,7 +31,7 @@
 | 运行时 | Node.js + TypeScript | `package.json` 要求 `>=20.0.0`，开发使用 v22.22.3 |
 | 模块系统 | ESM | `package.json` 中 `"type": "module"`，`tsconfig.json` 用 `nodenext` |
 | 数据库 | SQLite via `better-sqlite3` | 本地嵌入式，无服务端 |
-| 代码解析 | `tree-sitter` + 各语言 grammar | 当前支持 TS/JS/Python；插件框架已支持更多语言扩展 |
+| 代码解析 | `tree-sitter` + 各语言 grammar + 轻量正则 | TS/JS/Python 使用 tree-sitter；C++ 使用轻量正则解析器，可覆盖函数定义与调用引用 |
 | 测试 | Vitest v4 | 配置见 `vitest.config.ts` |
 | 类型检查 | `tsc --noEmit` | 严格模式已开启 |
 | 开发启动 | `tsx src/main.ts` | 见 `npm run dev` |
@@ -159,6 +159,7 @@ src/
 │       ├── plugin-system.ts        # 语言解析器插件注册表
 │       ├── typescript-parser.ts
 │       ├── python-parser.ts
+│       ├── cpp-parser.ts           # C++ 轻量正则解析器
 │       └── utils.ts
 │
 ├── code-gen/                       # AI 代码生成与重构（3 个 TS 文件）
@@ -208,7 +209,7 @@ src/
   └── IntentEngine / ContextManager / NodusShell / QueryCache / RecommendationEngine
 
 能力层
-  ├── CodeIntelligence（tree-sitter 解析）
+  ├── CodeIntelligence（tree-sitter / 正则解析）
   ├── CodeAnalytics（统计、热点、耦合、死代码等）
   ├── CodeGenerator（代码生成与重构）
   ├── CodeReviewer（代码评审）
@@ -524,7 +525,7 @@ node bundle/dist/main.js
 1. **原生二进制兼容性**：`better-sqlite3` 与 `tree-sitter` 的预编译二进制在某些平台上会加载失败。当前开发环境已通过 `npm run rebuild:native` 解决，但新环境仍需先运行 `npm run check:native` 验证。
 2. **语音交互**：实时唤醒词 + STT 尚未完全实现，仅保留接口与基础 TTS。
 3. **UI**：目前只有终端文本渲染器，没有图形界面。
-4. **代码解析精度**：tree-sitter 解析器已能抽取符号与基本引用，并支持跨文件引用解析、类型关系、模块耦合等，但复杂动态调用、eval、宏等场景仍有局限。
+4. **代码解析精度**：tree-sitter 解析器已能抽取符号与基本引用，并支持跨文件引用解析、类型关系、模块耦合等，但复杂动态调用、eval、宏等场景仍有局限；C++ 解析器为基于正则的启发式实现，适合导航与调用链查询，不适合精确语义分析。
 5. **环境自动安装**：`installRuntime` 实际不会主动下载安装 Node/Python，而是检测现有运行时并打印提示；真正的全自动安装尚未实现。
 6. **部分新能力未接入 REPL**：`CodeGenerator`、`CrossDomainDebugger`、`TeamCollaboration` 已模块实现，但尚未通过自然语言在 REPL 主流程中触发；可通过编程方式调用。
 7. **理解层 P1 简化**：债值计算中 `blastRadius` 当前硬编码 0.5（新鲜变更 debt < 1.0），需多批次累积或接入 ImpactAnalysis 后才有梯度；聚类用目录代替调用图连通分量；飞轮自动捕获依赖 FileWatcher + 保存静默窗口，尚未接入，当前为被动触发。完整设计与 P2 待办见 `readme.md` 与 `docs/superpowers/specs/`。

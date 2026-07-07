@@ -19,7 +19,7 @@ npm test
 npm run dev
 
 # 打开指定项目
-npm run dev /path/to/your/typescript-or-python-project
+npm run dev /path/to/your/typescript-python-or-cpp-project
 ```
 
 启动后直接在终端输入自然语言查询：
@@ -66,7 +66,7 @@ auth模块最近一周改了什么
 
 支持中英文，支持同义改写。例如“改动 refundOrder 会影响哪些地方”“refundOrder 的影响范围”也能识别为影响分析。
 
-支持 TypeScript、JavaScript、Python 项目。
+支持 TypeScript、JavaScript、Python 与 C++ 项目。C++ 解析目前采用轻量级正则方案，可覆盖函数定义与调用引用，适合 OpenCV 等大型 C++ 代码库的导航与查询。
 
 ## 新功能详述
 

@@ -20,6 +20,7 @@ import type {
 import type { GitIntelligence, DiffData } from '../git-intel/git-intelligence.js';
 import { TypeScriptParser } from './parsers/typescript-parser.js';
 import { PythonParser } from './parsers/python-parser.js';
+import { CppParser } from './parsers/cpp-parser.js';
 import { PluginRegistry } from './parsers/plugin-system.js';
 import { DefaultCodeAnalytics } from './code-analytics.impl.js';
 import { ModuleResolver } from './module-resolver.js';
@@ -48,9 +49,11 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
     this.registry = new PluginRegistry();
     const tsParser = new TypeScriptParser();
     const pyParser = new PythonParser();
+    const cppParser = new CppParser();
     this.registry.register(tsParser);
     this.registry.registerAlias('javascript', 'typescript');
     this.registry.register(pyParser);
+    this.registry.register(cppParser);
   }
 
   /** 注入 GitIntelligence 依赖（用于 changeHistory） */
@@ -201,6 +204,10 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
       this.store.refsUpsert(refs);
     }
 
+    // 对 C++ 等未解析的 unknown 引用做一次全局名字解析
+    const globalResolved = this.resolveUnknownRefsGlobally();
+    resolvedCount += globalResolved;
+
     report.referencesFound = this.store.refsFindAll().length;
 
     report.durationMs = Date.now() - startTime;
@@ -256,6 +263,9 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
 
     // 重建调用图
     this.store.callgraphRebuildForFile(filePath);
+
+    // 尝试全局名字解析（对 C++ 等语言的跨文件调用尤为重要）
+    this.resolveUnknownRefsGlobally();
 
     // 更新文件索引状态
     this.store.fileStateUpsert({
@@ -814,6 +824,51 @@ export class CodeIntelligenceImpl implements CodeIntelligence {
       }
     }
     return best;
+  }
+
+  /** 对 C++ 项目中 target_symbol_id 仍为 unknown:xxx 的引用，按名字做一次全局模糊解析 */
+  private resolveUnknownRefsGlobally(): number {
+    const cppExts = new Set(['.cpp', '.cc', '.cxx', '.hpp', '.h']);
+    const symbols = this.store.symbolsFindAll();
+    const symbolByName = new Map<string, Symbol>();
+
+    for (const sym of symbols) {
+      if (sym.language !== 'cpp') continue;
+      const existing = symbolByName.get(sym.name);
+      if (!existing) {
+        symbolByName.set(sym.name, sym);
+        continue;
+      }
+      // 去重策略：优先非测试目录文件，再优先更早出现的定义
+      const existingIsTest = /[\\/]test[\\/]/i.test(existing.location.file_path);
+      const newIsTest = /[\\/]test[\\/]/i.test(sym.location.file_path);
+      if (newIsTest && !existingIsTest) continue;
+      if (!newIsTest && existingIsTest) {
+        symbolByName.set(sym.name, sym);
+        continue;
+      }
+      if (sym.location.line_start < existing.location.line_start) {
+        symbolByName.set(sym.name, sym);
+      }
+    }
+
+    const refs = this.store.refsFindAll();
+    const updated: Reference[] = [];
+    let resolved = 0;
+    for (const ref of refs) {
+      if (!ref.target_symbol_id.startsWith('unknown:')) continue;
+      if (!cppExts.has(extname(ref.location.file_path).toLowerCase())) continue;
+      const name = ref.target_symbol_id.slice(8);
+      const target = symbolByName.get(name);
+      if (target) {
+        updated.push({ ...ref, target_symbol_id: target.id });
+        resolved++;
+      }
+    }
+    if (updated.length > 0) {
+      this.store.refsUpsert(updated);
+    }
+    return resolved;
   }
 
   /** 填充引用中的 source_symbol_id：根据引用所在位置找到包含它的函数/方法/类 */
