@@ -528,4 +528,18 @@ describe('NodusShell', () => {
     expect(result).toBeDefined();
     expect(result).toContain('项目索引');
   });
+
+  // TC-UT-SH-025: view_annotated 应支持 basename 查找
+  it('TC-UT-SH-025: should resolve view_annotated intent by basename', async () => {
+    currentTmpDir = mkdtempSync(join(tmpdir(), 'nodus-shell-test-'));
+    currentConfigManager = new JsonConfigManager(join(currentTmpDir, 'config.json'));
+    currentConfigManager.set('projectPaths', [tinyProjectPath]);
+    currentConfigManager.set('dbPath', ':memory:');
+    shell = new NodusShell(currentConfigManager);
+    await shell.bootstrap();
+
+    const result = await shell.handleQueryFormatted('查看 index.ts');
+    expect(result).toBeDefined();
+    expect(result).not.toContain('无法读取文件');
+  });
 });

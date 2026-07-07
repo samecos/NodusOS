@@ -5,6 +5,7 @@
 
 import { NodusError, EnvError } from '../common/errors.js';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SimpleEventBus } from './event-bus.impl.js';
 import { SqliteKnowledgeStore } from '../store/knowledge-store.impl.js';
@@ -472,21 +473,27 @@ export class NodusShell {
         this.contextMgr.recordQuery(text, intent.intentType);
         const filePath = intent.entities.filePath ?? '';
         const projectRoot = this.config.projectPaths[0] ?? '.';
-        const fullPath = resolve(projectRoot, filePath);
+        const fullPath = await this.resolveProjectFile(projectRoot, filePath);
+        if (!fullPath) {
+          this.setBreathLight('idle');
+          return `${RED}无法读取文件: ${filePath}${RESET}\n`;
+        }
+        const relativePath = fullPath.startsWith(projectRoot + '/') ? fullPath.slice(projectRoot.length + 1) : fullPath;
         let code = '';
         try { code = readFileSync(fullPath, 'utf-8'); } catch {
           this.setBreathLight('idle');
           return `${RED}无法读取文件: ${filePath}${RESET}\n`;
         }
-        const debts = this.debtEngine.getDebtByFile(filePath);
+        const debts = this.debtEngine.getDebtByFile(relativePath);
         // §4.2 examined 态：用户查看了标注视图即视为已审视，债值减半（仅未确认项）
         for (const d of debts) {
           if (!d.confirmed) {
             this.debtEngine.markExamined(d.symbol_id);
           }
         }
-        const output = renderAnnotatedView(filePath, code, debts, []);
-        const result = { kind: 'annotated_view' as const, filePath, content: code, output };
+        const output = renderAnnotatedView(relativePath, code, debts, []);
+        const result = { kind: 'annotated_view' as const, filePath: relativePath, content: code, output };
+        this.queryCache.set(cacheKey, this.uiRenderer.render(result));
         this.setBreathLight('idle');
         return this.uiRenderer.render(result);
       }
@@ -770,6 +777,35 @@ export class NodusShell {
   }
 
   // ---- helpers ----
+
+  /** 解析项目中的文件路径：优先直接路径，未找到时按 basename 递归搜索项目根目录 */
+  private async resolveProjectFile(projectRoot: string, filePath: string): Promise<string | null> {
+    const direct = resolve(projectRoot, filePath);
+    if (existsSync(direct)) return direct;
+
+    const targetName = basename(filePath);
+    const found = await this.findFileByName(projectRoot, targetName);
+    return found;
+  }
+
+  private async findFileByName(dir: string, targetName: string): Promise<string | null> {
+    try {
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'dist' || entry.name === 'build') continue;
+        const fullPath = resolve(dir, entry.name);
+        if (entry.isDirectory()) {
+          const found = await this.findFileByName(fullPath, targetName);
+          if (found) return found;
+        } else if (entry.isFile() && entry.name === targetName) {
+          return fullPath;
+        }
+      }
+    } catch {
+      // 忽略无权限或不存在目录
+    }
+    return null;
+  }
 
   private setBreathLight(state: BreathLightState): void {
     this.uiRenderer.setBreathLight(state);
